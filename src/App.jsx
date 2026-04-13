@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import * as XLSX from "xlsx";
-import { db, auth, collection, doc, getDocs, setDoc, deleteDoc, onSnapshot, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from "./firebase";
+import { db, auth, collection, doc, getDocs, setDoc, deleteDoc, onSnapshot, signInAnonymously, onAuthStateChanged, signOut } from "./firebase";
 
 const C = {
   red: "#8C1414",
@@ -1308,117 +1308,107 @@ export default function App() {
   }, [currentUser]);
 
   useEffect(() => {
-    (async () => {
-      // Load session and company settings from localStorage as before
-      try {
-        const r = localStorage.getItem("mcw_session");
-        if (r) setCurrentUser(JSON.parse(r));
-      } catch {}
-      try {
-        const r = localStorage.getItem("mcw_company");
-        if (r) setCompany({...DEFAULT_COMPANY,...JSON.parse(r)});
-      } catch {}
-      try {
-        const r = localStorage.getItem("mcw_sites");
-        if (r) setSiteNames(JSON.parse(r));
-      } catch {}
+  // Sign in anonymously so Firestore rules (auth != null) are satisfied
+  // on every device without any credential management.
+  const unsubAuth = onAuthStateChanged(auth, async (firebaseUser) => {
+    if (!firebaseUser) {
+      // Not signed in yet — trigger anonymous sign-in
+      try { await signInAnonymously(auth); } catch (e) { console.error("Anon auth failed:", e); }
+      return; // onAuthStateChanged will fire again once signed in
+    }
 
-      // Load all collections from Firebase
-      const collections = [
-        ["assets",      setAssets],
-        ["maint",       setMaint],
-        ["fuel",        setFuel],
-        ["ts",          setTs],
-        ["audit",       setAuditLog],
-        ["spares",      setSpares],
-        ["warranties",  setWarranties],
-        ["leaves",      setLeaves],
-        ["overtimes",   setOvertimes],
-        ["assignments", setAssignments],
-        ["budgets",     setBudgets],
-        ["hires",       setHires],
-        ["disposals",   setDisposals],
-        ["conditions",  setConditions],
-        ["incidents",   setIncidents],
-        ["suppliers",   setSuppliers],
-        ["compliance",  setCompliance],
-        ["projects",    setProjects],
-        ["employees",   setEmployees],
-        ["schedules",   setSchedules],
-        ["preops",      setPreops],
-        ["contractors", setContractors],
-        ["transfers",   setTransfers],
-      ];
+    // Firebase Auth is ready — now safe to read/write Firestore
+    try {
+      const r = localStorage.getItem("mcw_session");
+      if (r) setCurrentUser(JSON.parse(r));
+    } catch {}
+    try {
+      const r = localStorage.getItem("mcw_company");
+      if (r) setCompany({ ...DEFAULT_COMPANY, ...JSON.parse(r) });
+    } catch {}
+    try {
+      const r = localStorage.getItem("mcw_sites");
+      if (r) setSiteNames(JSON.parse(r));
+    } catch {}
 
-      for (const [name, setter] of collections) {
-        try {
-          // Try Firebase first
-          const snapshot = await getDocs(collection(db, name));
-          if (!snapshot.empty) {
-            const data = snapshot.docs.map(d => d.data());
-            setter(data);
-            // Also update localStorage as backup
-            localStorage.setItem("mcw_"+name, JSON.stringify(data));
-          } else {
-            // Firebase empty — try localStorage fallback
-            const r = localStorage.getItem("mcw_"+name);
-            if (r) {
-              const parsed = JSON.parse(r);
-              setter(parsed);
-              // If we have localStorage data, migrate it to Firebase
-              for (const item of parsed) {
-                if (item.id) {
-                  await setDoc(doc(db, name, item.id), item);
-                }
-              }
-            }
-          }
-        } catch(e) {
-          // Firebase failed — fall back to localStorage
-          console.warn(`Firebase load failed for ${name}, using localStorage:`, e);
-          try {
-            const r = localStorage.getItem("mcw_"+name);
-            if (r) setter(JSON.parse(r));
-          } catch {}
-        }
-      }
+    const collections = [
+      ["assets",      setAssets],
+      ["maint",       setMaint],
+      ["fuel",        setFuel],
+      ["ts",          setTs],
+      ["audit",       setAuditLog],
+      ["spares",      setSpares],
+      ["warranties",  setWarranties],
+      ["leaves",      setLeaves],
+      ["overtimes",   setOvertimes],
+      ["assignments", setAssignments],
+      ["budgets",     setBudgets],
+      ["hires",       setHires],
+      ["disposals",   setDisposals],
+      ["conditions",  setConditions],
+      ["incidents",   setIncidents],
+      ["suppliers",   setSuppliers],
+      ["compliance",  setCompliance],
+      ["projects",    setProjects],
+      ["employees",   setEmployees],
+      ["schedules",   setSchedules],
+      ["preops",      setPreops],
+      ["contractors", setContractors],
+      ["transfers",   setTransfers],
+    ];
 
-      // Load users
+    for (const [name, setter] of collections) {
       try {
-        const snapshot = await getDocs(collection(db, "users"));
+        const snapshot = await getDocs(collection(db, name));
         if (!snapshot.empty) {
           const data = snapshot.docs.map(d => d.data());
-          setUsers(data.length ? data : DEFAULT_USERS);
-          localStorage.setItem("mcw_users", JSON.stringify(data));
+          setter(data);
+          localStorage.setItem("mcw_" + name, JSON.stringify(data));
         } else {
-          const r = localStorage.getItem("mcw_users");
+          const r = localStorage.getItem("mcw_" + name);
           if (r) {
-            const saved = JSON.parse(r);
-            const usersToLoad = saved.length ? saved : DEFAULT_USERS;
-            setUsers(usersToLoad);
-            for (const u of usersToLoad) {
-              await setDoc(doc(db, "users", u.id), u);
-            }
-          } else {
-            setUsers(DEFAULT_USERS);
-            for (const u of DEFAULT_USERS) {
-              await setDoc(doc(db, "users", u.id), u);
+            const parsed = JSON.parse(r);
+            setter(parsed);
+            for (const item of parsed) {
+              if (item.id) await setDoc(doc(db, name, item.id), item);
             }
           }
         }
-      } catch(e) {
-        console.warn("Firebase users load failed:", e);
+      } catch (e) {
+        console.warn(`Firebase load failed for ${name}, using localStorage:`, e);
         try {
-          const r = localStorage.getItem("mcw_users");
-          if (r) {
-            const saved = JSON.parse(r);
-            setUsers(saved.length ? saved : DEFAULT_USERS);
-          }
+          const r = localStorage.getItem("mcw_" + name);
+          if (r) setter(JSON.parse(r));
         } catch {}
       }
+    }
 
-    })();
-  }, []);
+    // Load users
+    try {
+      const snapshot = await getDocs(collection(db, "users"));
+      if (!snapshot.empty) {
+        const data = snapshot.docs.map(d => d.data());
+        setUsers(data.length ? data : DEFAULT_USERS);
+        localStorage.setItem("mcw_users", JSON.stringify(data));
+      } else {
+        const r = localStorage.getItem("mcw_users");
+        const usersToLoad = r ? JSON.parse(r) : DEFAULT_USERS;
+        setUsers(usersToLoad.length ? usersToLoad : DEFAULT_USERS);
+        for (const u of (usersToLoad.length ? usersToLoad : DEFAULT_USERS)) {
+          await setDoc(doc(db, "users", u.id), u);
+        }
+      }
+    } catch (e) {
+      console.warn("Firebase users load failed:", e);
+      try {
+        const r = localStorage.getItem("mcw_users");
+        if (r) { const saved = JSON.parse(r); setUsers(saved.length ? saved : DEFAULT_USERS); }
+      } catch {}
+    }
+  });
+
+  return () => unsubAuth(); // clean up listener on unmount
+}, []);
 
   const totalCost = assets.reduce((s, a) => s + Number(a.purchaseCost || 0), 0);
   const totalBook = assets.reduce((s, a) => s + depreciate(a).bookValue, 0);
@@ -2308,34 +2298,18 @@ export default function App() {
     (x) => x.hasMaint && !x.hasFuel
   );
   const W = side ? 224 : 64;
-  const doLogin = async () => {
-    const u = users.find(
-      (x) => x.username === loginForm.username && x.password === loginForm.password
-    );
-    if (u) {
-      // Sign into Firebase Auth so Firestore security rules allow reads/writes
-      const firebaseEmail = `${u.username}@mapitsi.app`;
-      try {
-        await signInWithEmailAndPassword(auth, firebaseEmail, u.password);
-      } catch(e) {
-        if(e.code === "auth/user-not-found" || e.code === "auth/invalid-credential" || e.code === "auth/invalid-email") {
-          try {
-            await createUserWithEmailAndPassword(auth, firebaseEmail, u.password);
-          } catch(createErr) {
-            console.warn("Firebase auth create failed:", createErr);
-          }
-        }
-      }
-      setCurrentUser(u);
-      try { localStorage.setItem("mcw_session", JSON.stringify(u)); } catch {}
-      setLoginForm({ username: "", password: "", error: "" });
-    } else {
-      setLoginForm((f) => ({
-        ...f,
-        error: "Incorrect username or password. Please try again.",
-      }));
-    }
-  };
+  const doLogin = () => {
+  const u = users.find(
+    (x) => x.username === loginForm.username && x.password === loginForm.password
+  );
+  if (u) {
+    setCurrentUser(u);
+    try { localStorage.setItem("mcw_session", JSON.stringify(u)); } catch {}
+    setLoginForm({ username: "", password: "", error: "" });
+  } else {
+    setLoginForm((f) => ({ ...f, error: "Incorrect username or password. Please try again." }));
+  }
+};
   const doLogout = async () => {
     setCurrentUser(null);
     try { localStorage.removeItem("mcw_session"); } catch {}
