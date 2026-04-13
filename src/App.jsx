@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import * as XLSX from "xlsx";
+import { db, auth, collection, doc, getDocs, setDoc, deleteDoc, onSnapshot, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from "./firebase";
 
 const C = {
   red: "#8C1414",
@@ -1205,10 +1206,33 @@ export default function App() {
     setTimeout(() => setToasts((p) => p.filter((t) => t.id !== id)), 3500);
   };
   const removeToast = (id) => setToasts((p) => p.filter((t) => t.id !== id));
-  const persist = (k, d) => {
+  const persist = async (k, d) => {
     try {
       localStorage.setItem(k, JSON.stringify(d));
     } catch {}
+    try {
+      const collectionName = k.replace("mcw_","");
+      if(Array.isArray(d)) {
+        for(const item of d) {
+          if(item.id) {
+            await setDoc(doc(db, collectionName, item.id), item);
+          }
+        }
+      } else if(typeof d === "object" && d !== null) {
+        await setDoc(doc(db, collectionName, "singleton"), d);
+      }
+    } catch(e) {
+      console.error("Firebase persist error:", e);
+    }
+  };
+
+  const persistDelete = async (k, id) => {
+    try {
+      const collectionName = k.replace("mcw_","");
+      await deleteDoc(doc(db, collectionName, id));
+    } catch(e) {
+      console.error("Firebase delete error:", e);
+    }
   };
   const logAudit = (action, module, description) => {
     const entry = {
@@ -1242,6 +1266,7 @@ export default function App() {
     const u = arr.filter((i) => i.id !== id);
     set(u);
     persist(k, u);
+    persistDelete(k, id);
     logAudit(
       "DELETE",
       MODULE_NAMES[k] || k,
@@ -1260,58 +1285,138 @@ export default function App() {
   };
 
   useEffect(() => {
-    (async () => {
-      try {
-        const r = localStorage.getItem("mcw_users");
-        if (r) {
-          const saved = JSON.parse(r);
-          setUsers(saved.length ? saved : DEFAULT_USERS);
-        } else {
-          localStorage.setItem("mcw_users", JSON.stringify(DEFAULT_USERS));
+    if(!currentUser) return;
+    const realTimeCollections = [
+      ["assets",      setAssets],
+      ["maint",       setMaint],
+      ["fuel",        setFuel],
+      ["incidents",   setIncidents],
+      ["compliance",  setCompliance],
+      ["preops",      setPreops],
+    ];
+    const unsubscribers = realTimeCollections.map(([name, setter]) => {
+      return onSnapshot(collection(db, name), (snapshot) => {
+        if(!snapshot.empty) {
+          const data = snapshot.docs.map(d => d.data());
+          setter(data);
         }
-      } catch {}
+      }, (error) => {
+        console.warn(`Realtime listener failed for ${name}:`, error);
+      });
+    });
+    return () => unsubscribers.forEach(unsub => unsub());
+  }, [currentUser]);
+
+  useEffect(() => {
+    (async () => {
+      // Load session and company settings from localStorage as before
       try {
         const r = localStorage.getItem("mcw_session");
         if (r) setCurrentUser(JSON.parse(r));
       } catch {}
-      try { const r=localStorage.getItem("mcw_transfers"); if(r) setTransfers(JSON.parse(r)); } catch {}
-      try { const r=localStorage.getItem("mcw_contractors"); if(r) setContractors(JSON.parse(r)); } catch {}
-      try { const r=localStorage.getItem("mcw_preops"); if(r) setPreops(JSON.parse(r)); } catch {}
       try {
         const r = localStorage.getItem("mcw_company");
-        if (r) setCompany({ ...DEFAULT_COMPANY, ...JSON.parse(r) });
+        if (r) setCompany({...DEFAULT_COMPANY,...JSON.parse(r)});
       } catch {}
       try {
         const r = localStorage.getItem("mcw_sites");
         if (r) setSiteNames(JSON.parse(r));
       } catch {}
-      for (const [k, s] of [
-        ["mcw_assets", setAssets],
-        ["mcw_maint", setMaint],
-        ["mcw_fuel", setFuel],
-        ["mcw_ts", setTs],
-        ["mcw_audit", setAuditLog],
-        ["mcw_spares", setSpares],
-        ["mcw_warranties", setWarranties],
-        ["mcw_leaves", setLeaves],
-        ["mcw_overtimes", setOvertimes],
-        ["mcw_assignments", setAssignments],
-        ["mcw_budgets", setBudgets],
-        ["mcw_hires", setHires],
-        ["mcw_disposals", setDisposals],
-        ["mcw_conditions", setConditions],
-        ["mcw_incidents", setIncidents],
-        ["mcw_suppliers", setSuppliers],
-        ["mcw_compliance", setCompliance],
-        ["mcw_projects", setProjects],
-        ["mcw_employees", setEmployees],
-        ["mcw_schedules", setSchedules],
-      ]) {
+
+      // Load all collections from Firebase
+      const collections = [
+        ["assets",      setAssets],
+        ["maint",       setMaint],
+        ["fuel",        setFuel],
+        ["ts",          setTs],
+        ["audit",       setAuditLog],
+        ["spares",      setSpares],
+        ["warranties",  setWarranties],
+        ["leaves",      setLeaves],
+        ["overtimes",   setOvertimes],
+        ["assignments", setAssignments],
+        ["budgets",     setBudgets],
+        ["hires",       setHires],
+        ["disposals",   setDisposals],
+        ["conditions",  setConditions],
+        ["incidents",   setIncidents],
+        ["suppliers",   setSuppliers],
+        ["compliance",  setCompliance],
+        ["projects",    setProjects],
+        ["employees",   setEmployees],
+        ["schedules",   setSchedules],
+        ["preops",      setPreops],
+        ["contractors", setContractors],
+        ["transfers",   setTransfers],
+      ];
+
+      for (const [name, setter] of collections) {
         try {
-          const r = localStorage.getItem(k);
-          if (r) s(JSON.parse(r));
+          // Try Firebase first
+          const snapshot = await getDocs(collection(db, name));
+          if (!snapshot.empty) {
+            const data = snapshot.docs.map(d => d.data());
+            setter(data);
+            // Also update localStorage as backup
+            localStorage.setItem("mcw_"+name, JSON.stringify(data));
+          } else {
+            // Firebase empty — try localStorage fallback
+            const r = localStorage.getItem("mcw_"+name);
+            if (r) {
+              const parsed = JSON.parse(r);
+              setter(parsed);
+              // If we have localStorage data, migrate it to Firebase
+              for (const item of parsed) {
+                if (item.id) {
+                  await setDoc(doc(db, name, item.id), item);
+                }
+              }
+            }
+          }
+        } catch(e) {
+          // Firebase failed — fall back to localStorage
+          console.warn(`Firebase load failed for ${name}, using localStorage:`, e);
+          try {
+            const r = localStorage.getItem("mcw_"+name);
+            if (r) setter(JSON.parse(r));
+          } catch {}
+        }
+      }
+
+      // Load users
+      try {
+        const snapshot = await getDocs(collection(db, "users"));
+        if (!snapshot.empty) {
+          const data = snapshot.docs.map(d => d.data());
+          setUsers(data.length ? data : DEFAULT_USERS);
+          localStorage.setItem("mcw_users", JSON.stringify(data));
+        } else {
+          const r = localStorage.getItem("mcw_users");
+          if (r) {
+            const saved = JSON.parse(r);
+            const usersToLoad = saved.length ? saved : DEFAULT_USERS;
+            setUsers(usersToLoad);
+            for (const u of usersToLoad) {
+              await setDoc(doc(db, "users", u.id), u);
+            }
+          } else {
+            setUsers(DEFAULT_USERS);
+            for (const u of DEFAULT_USERS) {
+              await setDoc(doc(db, "users", u.id), u);
+            }
+          }
+        }
+      } catch(e) {
+        console.warn("Firebase users load failed:", e);
+        try {
+          const r = localStorage.getItem("mcw_users");
+          if (r) {
+            const saved = JSON.parse(r);
+            setUsers(saved.length ? saved : DEFAULT_USERS);
+          }
         } catch {}
       }
+
     })();
   }, []);
 
@@ -2203,14 +2308,26 @@ export default function App() {
     (x) => x.hasMaint && !x.hasFuel
   );
   const W = side ? 224 : 64;
-  const doLogin = () => {
+  const doLogin = async () => {
     const u = users.find(
-      (x) =>
-        x.username === loginForm.username && x.password === loginForm.password
+      (x) => x.username === loginForm.username && x.password === loginForm.password
     );
     if (u) {
+      // Sign into Firebase Auth so Firestore security rules allow reads/writes
+      const firebaseEmail = `${u.username}@mapitsi.app`;
+      try {
+        await signInWithEmailAndPassword(auth, firebaseEmail, u.password);
+      } catch(e) {
+        if(e.code === "auth/user-not-found" || e.code === "auth/invalid-credential" || e.code === "auth/invalid-email") {
+          try {
+            await createUserWithEmailAndPassword(auth, firebaseEmail, u.password);
+          } catch(createErr) {
+            console.warn("Firebase auth create failed:", createErr);
+          }
+        }
+      }
       setCurrentUser(u);
-      persist("mcw_session", JSON.stringify(u));
+      try { localStorage.setItem("mcw_session", JSON.stringify(u)); } catch {}
       setLoginForm({ username: "", password: "", error: "" });
     } else {
       setLoginForm((f) => ({
@@ -2219,11 +2336,10 @@ export default function App() {
       }));
     }
   };
-  const doLogout = () => {
+  const doLogout = async () => {
     setCurrentUser(null);
-    try {
-      localStorage.removeItem("mcw_session");
-    } catch {}
+    try { localStorage.removeItem("mcw_session"); } catch {}
+    try { await signOut(auth); } catch {}
   };
   const exportExcel = () => {
     const wb = XLSX.utils.book_new();
@@ -12248,8 +12364,9 @@ export default function App() {
                         />
                       </Field>
                       <Btn
-                        onClick={() => {
-                          persist("mcw_company", JSON.stringify(company));
+                        onClick={async () => {
+                          localStorage.setItem("mcw_company", JSON.stringify(company));
+                          try { await setDoc(doc(db,"company","singleton"), company); } catch(e){ console.error(e); }
                           toast("Company profile saved.");
                         }}
                         style={{ width: "100%", justifyContent: "center" }}
@@ -12373,8 +12490,9 @@ export default function App() {
                           like Imgur.
                         </div>
                         <Btn
-                          onClick={() => {
-                            persist("mcw_company", JSON.stringify(company));
+                          onClick={async () => {
+                            localStorage.setItem("mcw_company", JSON.stringify(company));
+                            try { await setDoc(doc(db,"company","singleton"), company); } catch(e){ console.error(e); }
                             toast(
                               "Logo saved. Refresh to see it in the topbar."
                             );
@@ -12425,8 +12543,9 @@ export default function App() {
                           </select>
                         </Field>
                         <Btn
-                          onClick={() => {
-                            persist("mcw_company", JSON.stringify(company));
+                          onClick={async () => {
+                            localStorage.setItem("mcw_company", JSON.stringify(company));
+                            try { await setDoc(doc(db,"company","singleton"), company); } catch(e){ console.error(e); }
                             toast("Financial settings saved.");
                           }}
                           style={{ width: "100%", justifyContent: "center" }}
@@ -12486,8 +12605,9 @@ export default function App() {
                     </div>
                     <div style={{ display: "flex", gap: 10 }}>
                       <Btn
-                        onClick={() => {
-                          persist("mcw_sites", JSON.stringify(siteNames));
+                        onClick={async () => {
+                          localStorage.setItem("mcw_sites", JSON.stringify(siteNames));
+                          try { await setDoc(doc(db,"sites","singleton"), {names:siteNames}); } catch(e){ console.error(e); }
                           toast("Site names saved.");
                         }}
                         style={{ flex: 1, justifyContent: "center" }}
@@ -12496,9 +12616,10 @@ export default function App() {
                       </Btn>
                       <Btn
                         variant="ghost"
-                        onClick={() => {
+                        onClick={async () => {
                           setSiteNames(DEFAULT_SITES);
-                          persist("mcw_sites", JSON.stringify(DEFAULT_SITES));
+                          localStorage.setItem("mcw_sites", JSON.stringify(DEFAULT_SITES));
+                          try { await setDoc(doc(db,"sites","singleton"), {names:DEFAULT_SITES}); } catch(e){ console.error(e); }
                           toast("Site names reset to defaults.", "warn");
                         }}
                       >
@@ -12587,8 +12708,9 @@ export default function App() {
                         </div>
                       </Field>
                       <Btn
-                        onClick={() => {
-                          persist("mcw_company", JSON.stringify(company));
+                        onClick={async () => {
+                          localStorage.setItem("mcw_company", JSON.stringify(company));
+                          try { await setDoc(doc(db,"company","singleton"), company); } catch(e){ console.error(e); }
                           toast("Notification settings saved.");
                         }}
                         style={{ width: "100%", justifyContent: "center" }}
@@ -15066,7 +15188,6 @@ export default function App() {
                     "Fill in Asset Name, Purchase Date and Purchase Cost.",
                     "error"
                   );
-                  return;
                   return;
                 }
                 add("mcw_assets", setAssets, assets, af);
@@ -17858,7 +17979,7 @@ export default function App() {
               </Row2>
               <Btn
                 size="sm"
-                onClick={() => {
+                onClick={async () => {
                   if (!newUser.name || !newUser.username || !newUser.password) {
                     toast("Fill in all fields.", "error");
                     return;
@@ -17867,12 +17988,11 @@ export default function App() {
                     toast("Username already exists.", "error");
                     return;
                   }
-                  const updated = [
-                    ...users,
-                    { ...newUser, id: Date.now().toString() },
-                  ];
+                  const newUserWithId = { ...newUser, id: Date.now().toString() };
+                  const updated = [...users, newUserWithId];
                   setUsers(updated);
-                  persist("mcw_users", updated);
+                  localStorage.setItem("mcw_users", JSON.stringify(updated));
+                  try { await setDoc(doc(db,"users",newUserWithId.id), newUserWithId); } catch(e){ console.error(e); }
                   setNewUser({
                     username: "",
                     password: "",
