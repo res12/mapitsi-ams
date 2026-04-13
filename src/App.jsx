@@ -1222,7 +1222,7 @@ export default function App() {
         await setDoc(doc(db, collectionName, "singleton"), d);
       }
     } catch(e) {
-      console.error("Firebase persist error:", e);
+      console.error("Firebase persist error for", k, ":", e.code, e.message);
     }
   };
 
@@ -17992,7 +17992,13 @@ export default function App() {
                   const updated = [...users, newUserWithId];
                   setUsers(updated);
                   localStorage.setItem("mcw_users", JSON.stringify(updated));
-                  try { await setDoc(doc(db,"users",newUserWithId.id), newUserWithId); } catch(e){ console.error(e); }
+                  try { 
+                    await setDoc(doc(db, "users", newUserWithId.id), newUserWithId);
+                    toast("User added and synced to cloud.");
+                  } catch(e) { 
+                    console.error("Firebase user save failed:", e);
+                    toast("User saved locally but cloud sync failed: " + e.message, "error");
+                  }
                   setNewUser({
                     username: "",
                     password: "",
