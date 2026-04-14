@@ -1172,6 +1172,660 @@ function Toast({ toasts, remove }) {
     </div>
   );
 }
+function JobCardsTab({ assets, jobCards, setJobCards, spares, setSpares, maint, setMaint, suppliers, employees, projects, siteNames, currentUser, persist, add, update, del, logAudit, toast, can, fmt, today, C, inp, Field, Row2, Btn, Card, Tbl, TR, Empty, KPI, Pill, PageTitle, depreciate }) {
+  const JOB_CARD_STATUS_LOCAL = ["Open","Assigned","In Progress","Awaiting Parts","Complete","Invoiced","Cancelled"];
+  const JOB_CARD_PRIORITY_LOCAL = ["Critical","High","Medium","Low"];
+  const JOB_CARD_TYPE_LOCAL = ["Scheduled Service","Breakdown Repair","Preventive Maintenance","Tyre Change","Electrical Fault","Hydraulic Repair","Body & Paint","Safety Inspection","Warranty Claim","Other"];
+
+  const dJC = { assetId:"", type:"Breakdown Repair", priority:"High", description:"", reportedBy:"", assignedTo:"", supplierId:"", status:"Open", openedDate:today(), scheduledDate:"", completedDate:"", odometerAtOpen:"", estimatedCost:"", actualCost:"", invoiceNumber:"", partsUsed:[], workDone:"", rootCause:"", notes:"" };
+
+  const [jcForm, setJcForm] = useState(dJC);
+  const [jcModal, setJcModal] = useState(null);
+  const [jcView, setJcView] = useState(null);
+  const [jcFilter, setJcFilter] = useState("All");
+
+  const openJCs = jobCards.filter(j => j.status !== "Complete" && j.status !== "Cancelled" && j.status !== "Invoiced").length;
+  const criticalJCs = jobCards.filter(j => j.priority === "Critical" && j.status !== "Complete" && j.status !== "Cancelled").length;
+  const totalRepairCost = jobCards.reduce((s,j) => s + Number(j.actualCost||0), 0);
+  const avgResolutionDays = (() => {
+    const completed = jobCards.filter(j => j.completedDate && j.openedDate);
+    if (!completed.length) return null;
+    return (completed.reduce((s,j) => s + Math.max(0, Math.round((new Date(j.completedDate) - new Date(j.openedDate))/(1000*60*60*24))),0) / completed.length).toFixed(1);
+  })();
+  const filteredJCs = jcFilter === "All" ? jobCards : jobCards.filter(j => j.status === jcFilter);
+  const statusColor = s => s==="Complete"||s==="Invoiced"?"green":s==="In Progress"?"blue":s==="Awaiting Parts"?"yellow":s==="Cancelled"?"gray":"yellow";
+  const priorityColor = p => p==="Critical"?"red":p==="High"?"yellow":p==="Medium"?"blue":"gray";
+
+  return (
+    <div>
+      <PageTitle
+        title="JOB CARD MANAGEMENT"
+        sub="Full lifecycle workshop control — open, assign, track parts, close and invoice"
+        action={can(currentUser,"canAdd") && <Btn onClick={() => { setJcForm(dJC); setJcModal("form"); }}>＋ Open Job Card</Btn>}
+      />
+
+      {/* KPIs */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(155px,1fr))",gap:14,marginBottom:22}}>
+        <KPI label="Total Job Cards" value={jobCards.length} color={C.info} icon="🔧" sub="all time"/>
+        <KPI label="Open / Active" value={openJCs} color={openJCs>0?C.warn:C.success} icon="⚑" sub="requiring attention"/>
+        <KPI label="Critical Priority" value={criticalJCs} color={criticalJCs>0?C.red:C.success} icon="⚠" sub="immediate action"/>
+        <KPI label="Total Repair Cost" value={fmt(totalRepairCost)} color={C.muted} icon="₽" sub="all completed cards"/>
+        <KPI label="Avg Resolution" value={avgResolutionDays?`${avgResolutionDays}d`:"—"} color={C.info} icon="◷" sub="days to complete"/>
+        <KPI label="Completed" value={jobCards.filter(j=>j.status==="Complete"||j.status==="Invoiced").length} color={C.success} icon="✓" sub="closed cards"/>
+      </div>
+
+      {/* CRITICAL BANNER */}
+      {criticalJCs > 0 && (
+        <div style={{background:C.redLight,border:`1px solid ${C.redBorder}`,borderRadius:10,padding:"14px 18px",marginBottom:18}}>
+          <div style={{fontSize:13,fontWeight:700,color:C.red,marginBottom:10}}>⚠ Critical Job Cards — Immediate Attention Required</div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+            {jobCards.filter(j=>j.priority==="Critical"&&j.status!=="Complete"&&j.status!=="Cancelled").map(j => {
+              const asset = assets.find(a=>a.id===j.assetId);
+              const daysOpen = Math.round((new Date()-new Date(j.openedDate))/(1000*60*60*24));
+              return (
+                <div key={j.id} onClick={()=>setJcView(j)} style={{background:C.white,border:`1px solid ${C.redBorder}`,borderRadius:8,padding:"8px 14px",cursor:"pointer"}}>
+                  <div style={{fontWeight:700,fontSize:12,color:C.text}}>{asset?.name||"—"} — {j.type}</div>
+                  <div style={{fontSize:11,color:C.red}}>{daysOpen}d open · {j.status}</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* FILTER BAR */}
+      <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap"}}>
+        {["All",...JOB_CARD_STATUS_LOCAL].map(s => (
+          <button key={s} onClick={()=>setJcFilter(s)} style={{
+            padding:"6px 14px",borderRadius:20,border:`1px solid ${jcFilter===s?C.red:C.border}`,
+            background:jcFilter===s?C.red:C.white,color:jcFilter===s?"white":C.muted,
+            fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",transition:"all 0.15s"
+          }}>
+            {s} {s!=="All"&&jobCards.filter(j=>j.status===s).length>0&&`(${jobCards.filter(j=>j.status===s).length})`}
+          </button>
+        ))}
+      </div>
+
+      {/* TABLE */}
+      {filteredJCs.length === 0 ? (
+        <Empty icon="🔧" title={jcFilter==="All"?"No job cards yet":`No ${jcFilter} job cards`}
+          desc="Open a job card for every maintenance task — scheduled or breakdown. This creates a full audit trail from fault reported to invoice paid."
+          btn={<Btn onClick={()=>{setJcForm(dJC);setJcModal("form");}}>Open First Job Card</Btn>}/>
+      ) : (
+        <Card>
+          <Tbl cols={["JC No.","Asset","Type","Priority","Status","Assigned To","Opened","Est. Cost","Actual Cost","Parts",""]}>
+            {[...filteredJCs].sort((a,b) => {
+              const po={Critical:0,High:1,Medium:2,Low:3};
+              if(a.status!=="Complete"&&b.status==="Complete") return -1;
+              if(a.status==="Complete"&&b.status!=="Complete") return 1;
+              return (po[a.priority]||2)-(po[b.priority]||2);
+            }).map((j,i) => {
+              const asset=assets.find(a=>a.id===j.assetId);
+              const supplier=suppliers.find(s=>s.id===j.supplierId);
+              const daysOpen=j.completedDate
+                ?Math.round((new Date(j.completedDate)-new Date(j.openedDate))/(1000*60*60*24))
+                :Math.round((new Date()-new Date(j.openedDate))/(1000*60*60*24));
+              const partsTotal=(j.partsUsed||[]).reduce((s,p)=>s+(Number(p.qty)*Number(p.unitCost||0)),0);
+              const jcNumber=`JC-${j.id.slice(-6).toUpperCase()}`;
+              return (
+                <TR key={j.id} stripe={i%2!==0} cells={[
+                  <div>
+                    <div style={{fontFamily:"monospace",fontSize:11,fontWeight:700,color:C.red}}>{jcNumber}</div>
+                    <div style={{fontSize:10,color:C.muted}}>{daysOpen}d {j.completedDate?"total":"open"}</div>
+                  </div>,
+                  <div>
+                    <div style={{fontWeight:700,fontSize:12,color:C.text}}>{asset?.name||"—"}</div>
+                    <div style={{fontSize:10,color:C.mutedLt}}>{asset?.category||""}</div>
+                  </div>,
+                  <span style={{fontSize:12}}>{j.type}</span>,
+                  <Pill text={j.priority} color={priorityColor(j.priority)}/>,
+                  <Pill text={j.status} color={statusColor(j.status)}/>,
+                  <span style={{fontSize:12,color:C.muted}}>{j.assignedTo||supplier?.name||"Unassigned"}</span>,
+                  <span style={{fontSize:12,color:C.muted}}>{j.openedDate}</span>,
+                  <span style={{fontSize:12}}>{j.estimatedCost?fmt(j.estimatedCost):"—"}</span>,
+                  <span style={{fontWeight:700,color:j.actualCost?C.text:C.mutedLt}}>{j.actualCost?fmt(j.actualCost):"—"}</span>,
+                  <div>
+                    {(j.partsUsed||[]).length>0?(
+                      <div>
+                        <Pill text={`${(j.partsUsed||[]).length} part${(j.partsUsed||[]).length!==1?"s":""}`} color="blue"/>
+                        <div style={{fontSize:10,color:C.muted,marginTop:2}}>{fmt(partsTotal)}</div>
+                      </div>
+                    ):<span style={{color:C.mutedLt,fontSize:11}}>None</span>}
+                  </div>,
+                  <div style={{display:"flex",gap:4}}>
+                    <button onClick={()=>setJcView(j)} style={{color:C.info,background:"none",border:"none",cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"'DM Sans',sans-serif"}}>View</button>
+                    {can(currentUser,"canEdit")&&j.status!=="Invoiced"&&(
+                      <button onClick={()=>{setJcForm({...dJC,...j});setJcModal("form");}} style={{color:C.warn,background:"none",border:"none",cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"'DM Sans',sans-serif"}}>Edit</button>
+                    )}
+                    {can(currentUser,"canDelete")&&(
+                      <button onClick={()=>del("mcw_jobcards",setJobCards,jobCards,j.id)} style={{color:C.muted,background:"none",border:"none",cursor:"pointer",fontSize:14,padding:"0 4px"}}>×</button>
+                    )}
+                  </div>
+                ]}/>
+              );
+            })}
+          </Tbl>
+        </Card>
+      )}
+
+      {/* JC FORM MODAL */}
+      {jcModal==="form" && (
+        <div style={{position:"fixed",inset:0,background:"rgba(17,19,24,0.7)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:9999,padding:20,backdropFilter:"blur(3px)"}}>
+          <div style={{background:C.white,borderRadius:14,width:"100%",maxWidth:680,maxHeight:"92vh",overflowY:"auto",boxShadow:"0 24px 80px rgba(0,0,0,0.3)",border:`1px solid ${C.border}`}}>
+            <div style={{padding:"20px 28px",borderBottom:`1px solid ${C.border}`,background:C.surface,display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,zIndex:10}}>
+              <div>
+                <div style={{fontSize:15,fontWeight:700,color:C.text}}>{jcForm.id?`Edit Job Card JC-${jcForm.id.slice(-6).toUpperCase()}`:"Open New Job Card"}</div>
+                <div style={{fontSize:12,color:C.muted,marginTop:2}}>Complete all details for a full audit trail</div>
+              </div>
+              <button onClick={()=>setJcModal(null)} style={{background:"none",border:"none",fontSize:18,cursor:"pointer",color:C.mutedLt}}>✕</button>
+            </div>
+            <div style={{padding:"22px 28px"}}>
+              <div style={{fontSize:11,fontWeight:700,color:C.red,textTransform:"uppercase",letterSpacing:1,marginBottom:12}}>Job Details</div>
+              <Field label="Asset" required>
+                <select {...inp} value={jcForm.assetId} onChange={e=>setJcForm({...jcForm,assetId:e.target.value})}>
+                  <option value="">— Select Asset —</option>
+                  {assets.map(a=><option key={a.id} value={a.id}>{a.name} · {a.category} · {a.location}</option>)}
+                </select>
+              </Field>
+              <Row2>
+                <Field label="Job Type" required>
+                  <select {...inp} value={jcForm.type} onChange={e=>setJcForm({...jcForm,type:e.target.value})}>
+                    {JOB_CARD_TYPE_LOCAL.map(t=><option key={t}>{t}</option>)}
+                  </select>
+                </Field>
+                <Field label="Priority" required>
+                  <select {...inp} value={jcForm.priority} onChange={e=>setJcForm({...jcForm,priority:e.target.value})}>
+                    {JOB_CARD_PRIORITY_LOCAL.map(p=><option key={p}>{p}</option>)}
+                  </select>
+                </Field>
+              </Row2>
+              <Field label="Fault Description / Work Required" required>
+                <input {...inp} value={jcForm.description} onChange={e=>setJcForm({...jcForm,description:e.target.value})} placeholder="Describe the fault, symptoms or work to be carried out in detail..."/>
+              </Field>
+              <Row2>
+                <Field label="Reported By">
+                  <input {...inp} value={jcForm.reportedBy} onChange={e=>setJcForm({...jcForm,reportedBy:e.target.value})} placeholder="Who reported the fault?"/>
+                </Field>
+                <Field label="Odometer / Hours at Open">
+                  <input {...inp} value={jcForm.odometerAtOpen} onChange={e=>setJcForm({...jcForm,odometerAtOpen:e.target.value})} placeholder="e.g. 14 500 km or 890 hrs"/>
+                </Field>
+              </Row2>
+
+              <div style={{fontSize:11,fontWeight:700,color:C.red,textTransform:"uppercase",letterSpacing:1,margin:"20px 0 12px"}}>Assignment & Scheduling</div>
+              <Row2>
+                <Field label="Assign To (Internal)">
+                  {employees.length>0?(
+                    <select {...inp} value={jcForm.assignedTo} onChange={e=>setJcForm({...jcForm,assignedTo:e.target.value})}>
+                      <option value="">— Internal Employee —</option>
+                      {employees.filter(e=>e.status==="Active").map(e=><option key={e.id} value={e.name}>{e.name} · {e.role}</option>)}
+                    </select>
+                  ):(
+                    <input {...inp} value={jcForm.assignedTo} onChange={e=>setJcForm({...jcForm,assignedTo:e.target.value})} placeholder="Mechanic or technician name"/>
+                  )}
+                </Field>
+                <Field label="External Supplier">
+                  <select {...inp} value={jcForm.supplierId} onChange={e=>setJcForm({...jcForm,supplierId:e.target.value})}>
+                    <option value="">— No External Supplier —</option>
+                    {suppliers.map(s=><option key={s.id} value={s.id}>{s.name} · {s.type}</option>)}
+                  </select>
+                </Field>
+              </Row2>
+              <Row2>
+                <Field label="Date Opened" required>
+                  <input type="date" {...inp} value={jcForm.openedDate} onChange={e=>setJcForm({...jcForm,openedDate:e.target.value})}/>
+                </Field>
+                <Field label="Scheduled Date">
+                  <input type="date" {...inp} value={jcForm.scheduledDate} onChange={e=>setJcForm({...jcForm,scheduledDate:e.target.value})}/>
+                </Field>
+              </Row2>
+
+              <div style={{fontSize:11,fontWeight:700,color:C.red,textTransform:"uppercase",letterSpacing:1,margin:"20px 0 12px"}}>Status & Costs</div>
+              <Row2>
+                <Field label="Status" required>
+                  <select {...inp} value={jcForm.status} onChange={e=>setJcForm({...jcForm,status:e.target.value})}>
+                    {JOB_CARD_STATUS_LOCAL.map(s=><option key={s}>{s}</option>)}
+                  </select>
+                </Field>
+                <Field label="Completed Date">
+                  <input type="date" {...inp} value={jcForm.completedDate} onChange={e=>setJcForm({...jcForm,completedDate:e.target.value})}/>
+                </Field>
+              </Row2>
+              <Row2>
+                <Field label="Estimated Cost (R)">
+                  <input type="number" {...inp} value={jcForm.estimatedCost} onChange={e=>setJcForm({...jcForm,estimatedCost:e.target.value})} placeholder="0.00"/>
+                </Field>
+                <Field label="Actual / Invoice Cost (R)">
+                  <input type="number" {...inp} value={jcForm.actualCost} onChange={e=>setJcForm({...jcForm,actualCost:e.target.value})} placeholder="0.00"/>
+                </Field>
+              </Row2>
+              <Row2>
+                <Field label="Invoice / Reference Number">
+                  <input {...inp} value={jcForm.invoiceNumber} onChange={e=>setJcForm({...jcForm,invoiceNumber:e.target.value})} placeholder="Supplier invoice number"/>
+                </Field>
+                <Field label="Root Cause">
+                  <input {...inp} value={jcForm.rootCause} onChange={e=>setJcForm({...jcForm,rootCause:e.target.value})} placeholder="What caused the fault?"/>
+                </Field>
+              </Row2>
+              <Field label="Work Done / Resolution Notes">
+                <input {...inp} value={jcForm.workDone} onChange={e=>setJcForm({...jcForm,workDone:e.target.value})} placeholder="Describe work completed, repairs made, parts replaced..."/>
+              </Field>
+
+              <div style={{fontSize:11,fontWeight:700,color:C.red,textTransform:"uppercase",letterSpacing:1,margin:"20px 0 12px"}}>
+                Parts & Spares Used
+                <span style={{fontSize:10,color:C.muted,fontWeight:400,marginLeft:8,textTransform:"none"}}>— deducted from inventory on save</span>
+              </div>
+              <div style={{background:C.surface,borderRadius:8,border:`1px solid ${C.border}`,overflow:"hidden",marginBottom:14}}>
+                {(jcForm.partsUsed||[]).length>0&&(
+                  <div style={{padding:"10px 14px",borderBottom:`1px solid ${C.border}`}}>
+                    {(jcForm.partsUsed||[]).map((p,idx)=>(
+                      <div key={idx} style={{display:"flex",alignItems:"center",gap:10,marginBottom:idx<(jcForm.partsUsed||[]).length-1?8:0}}>
+                        <div style={{flex:2,fontSize:12,fontWeight:600,color:C.text}}>{p.partName}</div>
+                        <div style={{flex:1,fontSize:12,color:C.muted}}>Qty: {p.qty}</div>
+                        <div style={{flex:1,fontSize:12,color:C.muted}}>{p.unitCost?fmt(p.unitCost)+"/unit":"No cost"}</div>
+                        <div style={{fontSize:12,fontWeight:700,color:C.text,flex:1}}>{p.unitCost?fmt(Number(p.qty)*Number(p.unitCost)):"—"}</div>
+                        <button onClick={()=>setJcForm({...jcForm,partsUsed:(jcForm.partsUsed||[]).filter((_,i)=>i!==idx)})}
+                          style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:14}}>×</button>
+                      </div>
+                    ))}
+                    <div style={{borderTop:`1px solid ${C.border}`,marginTop:8,paddingTop:8,display:"flex",justifyContent:"flex-end"}}>
+                      <span style={{fontSize:12,fontWeight:800,color:C.text}}>Parts Total: {fmt((jcForm.partsUsed||[]).reduce((s,p)=>s+Number(p.qty||0)*Number(p.unitCost||0),0))}</span>
+                    </div>
+                  </div>
+                )}
+                <div style={{padding:"12px 14px"}}>
+                  <div style={{fontSize:11,color:C.muted,marginBottom:8,fontWeight:600}}>Add part from inventory:</div>
+                  <div style={{display:"flex",gap:8,alignItems:"flex-end",flexWrap:"wrap"}}>
+                    <div style={{flex:2}}>
+                      <select style={{...inp.style,fontSize:12}} id="jc_part_select" defaultValue="">
+                        <option value="">— Select Part —</option>
+                        {spares.filter(s=>Number(s.quantity||0)>0).map(s=>(
+                          <option key={s.id} value={s.id}>{s.partName}{s.partNumber?` (${s.partNumber})`:""} — {s.quantity} in stock{s.unitCost?` @ ${fmt(s.unitCost)}`:""}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div style={{flex:1}}>
+                      <input type="number" id="jc_part_qty" min="1" defaultValue="1" style={{...inp.style,fontSize:12}} placeholder="Qty"/>
+                    </div>
+                    <Btn size="sm" variant="outline" onClick={()=>{
+                      const sel=document.getElementById("jc_part_select");
+                      const qty=document.getElementById("jc_part_qty");
+                      if(!sel.value){toast("Select a part first.","error");return;}
+                      const spare=spares.find(s=>s.id===sel.value);
+                      if(!spare) return;
+                      const qtyNum=Math.max(1,Number(qty.value||1));
+                      if(qtyNum>Number(spare.quantity||0)){toast(`Only ${spare.quantity} units in stock.`,"error");return;}
+                      const existing=(jcForm.partsUsed||[]).findIndex(p=>p.spareId===spare.id);
+                      if(existing>=0){
+                        const updated=[...(jcForm.partsUsed||[])];
+                        updated[existing]={...updated[existing],qty:Number(updated[existing].qty)+qtyNum};
+                        setJcForm({...jcForm,partsUsed:updated});
+                      } else {
+                        setJcForm({...jcForm,partsUsed:[...(jcForm.partsUsed||[]),{spareId:spare.id,partName:spare.partName,partNumber:spare.partNumber||"",qty:qtyNum,unitCost:spare.unitCost||0}]});
+                      }
+                      sel.value="";qty.value="1";
+                    }}>＋ Add Part</Btn>
+                  </div>
+                </div>
+              </div>
+
+              <Field label="Additional Notes">
+                <input {...inp} value={jcForm.notes} onChange={e=>setJcForm({...jcForm,notes:e.target.value})} placeholder="Any other notes, safety observations, follow-up required..."/>
+              </Field>
+
+              <div style={{display:"flex",gap:10,marginTop:20,paddingTop:16,borderTop:`1px solid ${C.border}`}}>
+                <Btn style={{flex:1,justifyContent:"center"}} onClick={()=>{
+                  if(!jcForm.assetId||!jcForm.description){toast("Select an asset and describe the work required.","error");return;}
+                  if((jcForm.partsUsed||[]).length>0&&!jcForm.id){
+                    const updatedSpares=spares.map(s=>{
+                      const used=(jcForm.partsUsed||[]).find(p=>p.spareId===s.id);
+                      if(!used) return s;
+                      const newQty=Math.max(0,Number(s.quantity||0)-Number(used.qty||0));
+                      return{...s,quantity:newQty,status:newQty===0?"Out of Stock":Number(newQty)<=Number(s.minStockLevel||0)?"Low Stock":"In Stock"};
+                    });
+                    setSpares(updatedSpares);
+                    persist("mcw_spares",updatedSpares);
+                  }
+                  if((jcForm.status==="Complete"||jcForm.status==="Invoiced")&&jcForm.actualCost&&!jcForm.id){
+                    const jcRef=`JC-${Date.now().toString().slice(-6).toUpperCase()}`;
+                    const maintRecord={id:Date.now().toString()+"jc",assetId:jcForm.assetId,date:jcForm.completedDate||today(),type:jcForm.type.includes("Service")?"Full Service":"Repair",description:`[${jcRef}] ${jcForm.workDone||jcForm.description}`,cost:jcForm.actualCost,performedBy:jcForm.assignedTo||(suppliers.find(s=>s.id===jcForm.supplierId)?.name||""),nextDueDate:""};
+                    const updatedMaint=[...maint,maintRecord];
+                    setMaint(updatedMaint);
+                    persist("mcw_maint",updatedMaint);
+                  }
+                  if(jcForm.id){
+                    update("mcw_jobcards",setJobCards,jobCards,jcForm.id,jcForm);
+                    toast("Job card updated.");
+                  } else {
+                    add("mcw_jobcards",setJobCards,jobCards,jcForm);
+                    toast(`Job card opened.${(jcForm.partsUsed||[]).length>0?` ${(jcForm.partsUsed||[]).length} part(s) deducted from inventory.`:""}${jcForm.status==="Complete"?" Maintenance record auto-created.":""}`);
+                  }
+                  setJcModal(null);
+                }}>
+                  {jcForm.id?"Save Changes":"Open Job Card"}
+                </Btn>
+                <Btn variant="ghost" onClick={()=>setJcModal(null)}>Cancel</Btn>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* JC VIEW MODAL */}
+      {jcView&&(()=>{
+        const asset=assets.find(a=>a.id===jcView.assetId);
+        const supplier=suppliers.find(s=>s.id===jcView.supplierId);
+        const partsTotal=(jcView.partsUsed||[]).reduce((s,p)=>s+Number(p.qty||0)*Number(p.unitCost||0),0);
+        const daysOpen=jcView.completedDate
+          ?Math.round((new Date(jcView.completedDate)-new Date(jcView.openedDate))/(1000*60*60*24))
+          :Math.round((new Date()-new Date(jcView.openedDate))/(1000*60*60*24));
+        const jcNumber=`JC-${jcView.id.slice(-6).toUpperCase()}`;
+        return (
+          <div style={{position:"fixed",inset:0,background:"rgba(17,19,24,0.75)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:9999,padding:20,backdropFilter:"blur(4px)"}}>
+            <div style={{background:C.white,borderRadius:14,width:"100%",maxWidth:720,maxHeight:"94vh",overflowY:"auto",boxShadow:"0 32px 100px rgba(0,0,0,0.4)"}}>
+              <div style={{background:C.dark,padding:"24px 32px",borderRadius:"14px 14px 0 0"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                  <div>
+                    <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:8}}>
+                      <div style={{background:C.red,borderRadius:6,padding:"4px 12px"}}>
+                        <span style={{color:"white",fontSize:11,fontWeight:900,fontFamily:"monospace",letterSpacing:1}}>{jcNumber}</span>
+                      </div>
+                      <Pill text={jcView.priority} color={priorityColor(jcView.priority)}/>
+                      <Pill text={jcView.status} color={statusColor(jcView.status)}/>
+                    </div>
+                    <div style={{fontSize:20,fontWeight:800,color:"white",fontFamily:"'Barlow Condensed',sans-serif"}}>{asset?.name||"Unknown Asset"}</div>
+                    <div style={{fontSize:12,color:"#6B7280",marginTop:2}}>{asset?.category} · {asset?.serialNumber||"No serial"} · {asset?.location}</div>
+                  </div>
+                  <div style={{display:"flex",gap:8}}>
+                    <button onClick={()=>window.print()} style={{background:"rgba(255,255,255,0.1)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:6,padding:"7px 14px",color:"white",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>⬒ Print</button>
+                    <button onClick={()=>setJcView(null)} style={{background:"none",border:"none",color:"#6B7280",fontSize:18,cursor:"pointer"}}>✕</button>
+                  </div>
+                </div>
+              </div>
+              <div style={{padding:"24px 32px"}}>
+                <div style={{background:C.redLight,border:`1px solid ${C.redBorder}`,borderRadius:9,padding:"14px 18px",marginBottom:20}}>
+                  <div style={{fontSize:11,color:C.red,fontWeight:700,textTransform:"uppercase",letterSpacing:0.8,marginBottom:6}}>Fault / Work Description</div>
+                  <div style={{fontSize:13,color:C.text,fontWeight:600}}>{jcView.description}</div>
+                  {jcView.reportedBy&&<div style={{fontSize:11,color:C.muted,marginTop:4}}>Reported by: {jcView.reportedBy}</div>}
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:20}}>
+                  {[
+                    {l:"Job Type",v:jcView.type},
+                    {l:"Date Opened",v:jcView.openedDate},
+                    {l:"Duration",v:`${daysOpen} day${daysOpen!==1?"s":""}`},
+                    {l:"Assigned To",v:jcView.assignedTo||supplier?.name||"Unassigned"},
+                    {l:"Scheduled Date",v:jcView.scheduledDate||"Not scheduled"},
+                    {l:"Completed Date",v:jcView.completedDate||"Not completed"},
+                    {l:"Odometer / Hours",v:jcView.odometerAtOpen||"Not recorded"},
+                    {l:"Invoice Number",v:jcView.invoiceNumber||"Not invoiced"},
+                    {l:"Root Cause",v:jcView.rootCause||"Not identified"},
+                  ].map(item=>(
+                    <div key={item.l} style={{background:C.surface,borderRadius:7,padding:"10px 12px"}}>
+                      <div style={{fontSize:9,color:C.muted,textTransform:"uppercase",letterSpacing:0.5,marginBottom:3}}>{item.l}</div>
+                      <div style={{fontSize:12,fontWeight:600,color:C.text}}>{item.v}</div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:20}}>
+                  {[
+                    {l:"Estimated Cost",v:jcView.estimatedCost?fmt(jcView.estimatedCost):"—",c:C.muted},
+                    {l:"Parts Cost",v:fmt(partsTotal),c:C.info},
+                    {l:"Total Actual Cost",v:jcView.actualCost?fmt(Number(jcView.actualCost)+partsTotal):fmt(partsTotal),c:C.red},
+                  ].map(item=>(
+                    <div key={item.l} style={{background:C.surface,borderRadius:7,padding:"12px 14px",borderLeft:`3px solid ${item.c}`}}>
+                      <div style={{fontSize:9,color:C.muted,textTransform:"uppercase",letterSpacing:0.5,marginBottom:4}}>{item.l}</div>
+                      <div style={{fontSize:18,fontWeight:800,color:item.c,fontFamily:"'Barlow Condensed',sans-serif"}}>{item.v}</div>
+                    </div>
+                  ))}
+                </div>
+                {(jcView.partsUsed||[]).length>0&&(
+                  <div style={{marginBottom:20}}>
+                    <div style={{fontSize:11,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:0.8,marginBottom:10}}>Parts & Spares Used</div>
+                    <div style={{border:`1px solid ${C.border}`,borderRadius:8,overflow:"hidden"}}>
+                      <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                        <thead>
+                          <tr style={{background:C.surface}}>
+                            {["Part Name","Part No.","Qty","Unit Cost","Total"].map(h=>(
+                              <th key={h} style={{padding:"8px 12px",textAlign:"left",color:C.muted,fontWeight:700,fontSize:10,textTransform:"uppercase",borderBottom:`1px solid ${C.border}`}}>{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(jcView.partsUsed||[]).map((p,i)=>(
+                            <tr key={i} style={{background:i%2===0?C.white:C.surface,borderBottom:`1px solid ${C.border}`}}>
+                              <td style={{padding:"8px 12px",fontWeight:600}}>{p.partName}</td>
+                              <td style={{padding:"8px 12px",color:C.muted,fontFamily:"monospace"}}>{p.partNumber||"—"}</td>
+                              <td style={{padding:"8px 12px",fontWeight:700,color:C.info}}>{p.qty}</td>
+                              <td style={{padding:"8px 12px"}}>{p.unitCost?fmt(p.unitCost):"—"}</td>
+                              <td style={{padding:"8px 12px",fontWeight:700}}>{p.unitCost?fmt(Number(p.qty)*Number(p.unitCost)):"—"}</td>
+                            </tr>
+                          ))}
+                          <tr style={{background:C.dark}}>
+                            <td colSpan={4} style={{padding:"8px 12px",fontWeight:800,color:"white",fontSize:11,textTransform:"uppercase"}}>Parts Total</td>
+                            <td style={{padding:"8px 12px",fontWeight:800,color:"#93C5FD",fontFamily:"'Barlow Condensed',sans-serif",fontSize:15}}>{fmt(partsTotal)}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+                {jcView.workDone&&(
+                  <div style={{background:C.successBg,border:"1px solid #A7F3D0",borderRadius:9,padding:"14px 18px",marginBottom:14}}>
+                    <div style={{fontSize:11,color:C.success,fontWeight:700,textTransform:"uppercase",letterSpacing:0.8,marginBottom:6}}>Work Completed</div>
+                    <div style={{fontSize:13,color:C.text}}>{jcView.workDone}</div>
+                  </div>
+                )}
+                {jcView.notes&&(
+                  <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:9,padding:"12px 16px",marginBottom:14}}>
+                    <div style={{fontSize:11,color:C.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:0.8,marginBottom:4}}>Notes</div>
+                    <div style={{fontSize:12,color:C.text}}>{jcView.notes}</div>
+                  </div>
+                )}
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:16,marginTop:24,paddingTop:20,borderTop:`2px solid ${C.border}`}}>
+                  {["Technician / Mechanic","Supervisor / Foreman","Plant Manager"].map(role=>(
+                    <div key={role} style={{textAlign:"center"}}>
+                      <div style={{height:50,borderBottom:`1px solid ${C.text}`,marginBottom:6}}/>
+                      <div style={{fontSize:10,color:C.muted,fontWeight:600}}>{role}</div>
+                      <div style={{fontSize:9,color:C.mutedLt,marginTop:2}}>Signature & Date</div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{marginTop:16,display:"flex",gap:10,justifyContent:"flex-end"}}>
+                  {can(currentUser,"canEdit")&&jcView.status!=="Invoiced"&&(
+                    <Btn variant="outline" size="sm" onClick={()=>{setJcForm({...dJC,...jcView});setJcView(null);setJcModal("form");}}>Edit Job Card</Btn>
+                  )}
+                  <Btn variant="ghost" size="sm" onClick={()=>setJcView(null)}>Close</Btn>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+    </div>
+  );
+}
+
+function AIAssistTab({ assets, maint, fuel, incidents, compliance, spares, jobCards, projects, employees, company, currentUser, getProjectSpend, depreciate, allAlerts, expiringSoon, employeesOnLeave, totalCost, totalBook, fmt, today, monthLabel, C, Btn, KPI }) {
+  const [aiMessages, setAiMessages] = useState([]);
+  const [aiInput, setAiInput] = useState("");
+  const [aiLoading, setAiLoading] = useState(false);
+
+  const QUICK_PROMPTS = [
+    "Which asset is costing us the most in maintenance this year?",
+    "Which assets are due for service in the next 30 days?",
+    "Which operator has the most incidents on record?",
+    "What is the total cost of ownership of our TLBs?",
+    "Which assets have not been fuelled this month?",
+    "Summarise our fleet health — what needs urgent attention?",
+    "Which supplier do we spend the most money with?",
+    "What is our average fuel cost per litre across all assets?",
+    "List all assets that are fully depreciated but still active.",
+    "Which project is most over budget right now?",
+  ];
+
+  const buildFleetContext = () => `
+You are the AI Plant Assistant for ${company.name||"Mapitsi Civil Works"} — a professional South African civil engineering company. You have complete live access to their fleet management data. Be precise, professional and direct. Use South African Rand (R). Flag risks and savings opportunities proactively.
+
+TODAY: ${today()} | COMPANY: ${company.name||"Mapitsi Civil Works"} | ${company.city||"Johannesburg"} | ${company.phone||"011 394 7343"}
+
+=== FLEET (${assets.length} assets) ===
+${JSON.stringify(assets.map(a=>{const d=depreciate(a);return{name:a.name,cat:a.category,status:a.status,location:a.location,cost:Number(a.purchaseCost||0),bookValue:Math.round(d.bookValue),deprPct:Number(a.purchaseCost)>0?Math.round((d.accumulated/Number(a.purchaseCost))*100):0};}),null,1)}
+
+=== MAINTENANCE (${maint.length} records) ===
+Total Cost: R${maint.reduce((s,m)=>s+Number(m.cost||0),0).toLocaleString()}
+Overdue: ${maint.filter(m=>m.nextDueDate&&m.nextDueDate<today()).length}
+Per Asset: ${JSON.stringify(assets.map(a=>({asset:a.name,cost:maint.filter(m=>m.assetId===a.id).reduce((s,m)=>s+Number(m.cost||0),0),count:maint.filter(m=>m.assetId===a.id).length,lastService:[...maint].filter(m=>m.assetId===a.id).sort((x,y)=>y.date>x.date?1:-1)[0]?.date||"never"})),null,1)}
+
+=== FUEL (${fuel.length} records) ===
+Total Cost: R${fuel.reduce((s,f)=>s+Number(f.cost||0),0).toLocaleString()}
+Total Litres: ${fuel.reduce((s,f)=>s+Number(f.litres||0),0).toFixed(0)}L
+Avg R/L: R${fuel.reduce((s,f)=>s+Number(f.litres||0),0)>0?(fuel.reduce((s,f)=>s+Number(f.cost||0),0)/fuel.reduce((s,f)=>s+Number(f.litres||0),0)).toFixed(2):"N/A"}
+Per Asset: ${JSON.stringify(assets.map(a=>({asset:a.name,cost:fuel.filter(f=>f.assetId===a.id).reduce((s,f)=>s+Number(f.cost||0),0),litres:fuel.filter(f=>f.assetId===a.id).reduce((s,f)=>s+Number(f.litres||0),0)})).filter(x=>x.litres>0),null,1)}
+
+=== INCIDENTS (${incidents.length}) ===
+Open: ${incidents.filter(i=>i.resolved==="No").length} | Downtime: ${incidents.reduce((s,i)=>s+Number(i.downtimeHours||0),0).toFixed(1)}hrs | Repair Cost: R${incidents.reduce((s,i)=>s+Number(i.repairCost||0),0).toLocaleString()}
+
+=== PROJECTS ===
+${JSON.stringify(projects.filter(p=>p.status==="Active").map(p=>{const sp=getProjectSpend(p.id);return{name:p.name,site:p.site,contractValue:Number(p.contractValue||0),spent:Math.round(sp.total),remaining:Math.round(Number(p.contractValue||0)-sp.total)};}),null,1)}
+
+=== JOB CARDS ===
+Total: ${jobCards.length} | Open: ${jobCards.filter(j=>j.status!=="Complete"&&j.status!=="Cancelled"&&j.status!=="Invoiced").length} | Critical: ${jobCards.filter(j=>j.priority==="Critical"&&j.status!=="Complete"&&j.status!=="Cancelled").length}
+
+=== COMPLIANCE ===
+Total: ${compliance.length} | Expired: ${compliance.filter(c=>c.expiryDate&&c.expiryDate<today()).length} | Expiring 30d: ${expiringSoon.length}
+
+=== SPARES ===
+Parts: ${spares.length} | Low: ${spares.filter(s=>Number(s.quantity||0)<=Number(s.minStockLevel||0)&&Number(s.minStockLevel||0)>0).length} | Out: ${spares.filter(s=>Number(s.quantity||0)===0).length} | Value: R${spares.reduce((s,x)=>s+Number(x.quantity||0)*Number(x.unitCost||0),0).toLocaleString()}
+
+=== EMPLOYEES (${employees.length}) ===
+Active: ${employees.filter(e=>e.status==="Active").length} | On Leave: ${employeesOnLeave}
+
+=== ALERTS ===
+Critical: ${allAlerts.filter(a=>a.severity==="critical").length} | Warnings: ${allAlerts.filter(a=>a.severity==="warning").length} | Info: ${allAlerts.filter(a=>a.severity==="info").length}
+
+Portfolio: Cost R${totalCost.toLocaleString()} | Book Value R${Math.round(totalBook).toLocaleString()} | Depreciated R${Math.round(totalCost-totalBook).toLocaleString()}
+`;
+
+  const sendMessage = async (messageText) => {
+    const text = (messageText || aiInput).trim();
+    if (!text || aiLoading) return;
+    setAiInput("");
+    const userMsg = { role:"user", content:text, ts:Date.now() };
+    setAiMessages(prev => [...prev, userMsg]);
+    setAiLoading(true);
+    try {
+      const history = [...aiMessages, userMsg].filter(m=>m.role==="user"||m.role==="assistant").slice(-10).map(m=>({role:m.role,content:m.content}));
+      const response = await fetch("https://api.anthropic.com/v1/messages", {
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({ model:"claude-sonnet-4-20250514", max_tokens:1000, system:buildFleetContext(), messages:history }),
+      });
+      const data = await response.json();
+      const replyText = data.content?.find(b=>b.type==="text")?.text || "I couldn't generate a response. Please try again.";
+      setAiMessages(prev => [...prev, { role:"assistant", content:replyText, ts:Date.now() }]);
+    } catch {
+      setAiMessages(prev => [...prev, { role:"assistant", content:"⚠ Connection error. Please check your internet connection and try again.", ts:Date.now() }]);
+    }
+    setAiLoading(false);
+  };
+
+  return (
+    <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 130px)"}}>
+      <style>{`@keyframes bounce{0%,80%,100%{transform:scale(0.6);opacity:0.5;}40%{transform:scale(1);opacity:1;}}`}</style>
+
+      {/* HEADER */}
+      <div style={{marginBottom:20,flexShrink:0}}>
+        <div style={{display:"flex",alignItems:"center",gap:16,marginBottom:8}}>
+          <div style={{width:48,height:48,background:"linear-gradient(135deg, #8C1414 0%, #1C2030 100%)",borderRadius:12,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,boxShadow:"0 4px 16px rgba(140,20,20,0.3)",flexShrink:0}}>✦</div>
+          <div>
+            <div style={{fontSize:22,fontWeight:800,color:C.text,letterSpacing:-0.5,fontFamily:"'Barlow Condensed',sans-serif"}}>AI PLANT ASSISTANT</div>
+            <div style={{fontSize:13,color:C.muted}}>Powered by Claude · Full access to your live fleet data · Ask anything</div>
+          </div>
+          <div style={{marginLeft:"auto",display:"flex",gap:8,alignItems:"center"}}>
+            {aiMessages.length>0&&<Btn variant="ghost" size="sm" onClick={()=>setAiMessages([])}>Clear Chat</Btn>}
+            <div style={{background:C.successBg,border:"1px solid #A7F3D0",borderRadius:20,padding:"4px 12px",fontSize:11,color:C.success,fontWeight:700}}>
+              ● LIVE — {assets.length} assets · {maint.length} maint · {fuel.length} fuel logs
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* CHAT AREA */}
+      <div style={{flex:1,overflowY:"auto",background:C.white,borderRadius:12,border:`1px solid ${C.border}`,display:"flex",flexDirection:"column",boxShadow:"0 2px 12px rgba(0,0,0,0.06)",minHeight:0}}>
+
+        {/* WELCOME */}
+        {aiMessages.length===0&&(
+          <div style={{padding:"32px 32px 20px",flex:1,overflowY:"auto"}}>
+            <div style={{textAlign:"center",marginBottom:32}}>
+              <div style={{fontSize:40,marginBottom:12}}>✦</div>
+              <div style={{fontSize:18,fontWeight:800,color:C.text,fontFamily:"'Barlow Condensed',sans-serif",marginBottom:6}}>
+                Good {new Date().getHours()<12?"morning":new Date().getHours()<17?"afternoon":"evening"}, {currentUser?.name?.split(" ")[0]||"Manager"}
+              </div>
+              <div style={{fontSize:13,color:C.muted,maxWidth:500,margin:"0 auto"}}>
+                I have complete access to your fleet — {assets.length} assets, {maint.length} maintenance records, {fuel.length} fuel logs, {incidents.length} incidents and more. Ask me anything.
+              </div>
+            </div>
+            <div style={{fontSize:11,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:0.8,marginBottom:12,textAlign:"center"}}>Suggested Questions</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,maxWidth:700,margin:"0 auto"}}>
+              {QUICK_PROMPTS.map((q,i)=>(
+                <button key={i} onClick={()=>sendMessage(q)} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:9,padding:"11px 14px",textAlign:"left",fontSize:12,color:C.text,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",lineHeight:1.4,transition:"all 0.15s"}}
+                  onMouseEnter={e=>{e.currentTarget.style.borderColor=C.red;e.currentTarget.style.background=C.redLight;}}
+                  onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.background=C.surface;}}>
+                  <span style={{color:C.red,marginRight:6,fontWeight:700}}>→</span>{q}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* MESSAGES */}
+        {aiMessages.length>0&&(
+          <div style={{flex:1,padding:"20px 24px",display:"flex",flexDirection:"column",gap:16,overflowY:"auto"}}>
+            {aiMessages.map((msg,i)=>(
+              <div key={i} style={{display:"flex",gap:12,flexDirection:msg.role==="user"?"row-reverse":"row",alignItems:"flex-start"}}>
+                <div style={{width:32,height:32,borderRadius:"50%",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:700,background:msg.role==="user"?C.red:C.dark,color:"white",fontFamily:"'Barlow Condensed',sans-serif"}}>
+                  {msg.role==="user"?(currentUser?.name?.charAt(0)||"U"):"✦"}
+                </div>
+                <div style={{maxWidth:"75%",background:msg.role==="user"?C.red:C.surface,color:msg.role==="user"?"white":C.text,borderRadius:msg.role==="user"?"14px 14px 4px 14px":"14px 14px 14px 4px",padding:"12px 16px",fontSize:13,lineHeight:1.65,boxShadow:"0 2px 8px rgba(0,0,0,0.06)",border:msg.role==="user"?"none":`1px solid ${C.border}`,whiteSpace:"pre-wrap"}}>
+                  {msg.content}
+                </div>
+              </div>
+            ))}
+            {aiLoading&&(
+              <div style={{display:"flex",gap:12,alignItems:"flex-start"}}>
+                <div style={{width:32,height:32,borderRadius:"50%",background:C.dark,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,color:"white",flexShrink:0}}>✦</div>
+                <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:"14px 14px 14px 4px",padding:"12px 16px",display:"flex",gap:6,alignItems:"center"}}>
+                  {[0,1,2].map(i=><div key={i} style={{width:7,height:7,borderRadius:"50%",background:C.red,animation:`bounce 1.2s ease-in-out ${i*0.2}s infinite`,opacity:0.8}}/>)}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* INLINE QUICK PROMPTS */}
+        {aiMessages.length>0&&!aiLoading&&(
+          <div style={{padding:"0 24px 12px",display:"flex",gap:6,flexWrap:"wrap",flexShrink:0}}>
+            {QUICK_PROMPTS.slice(0,4).map((q,i)=>(
+              <button key={i} onClick={()=>sendMessage(q)} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:20,padding:"5px 12px",fontSize:11,color:C.muted,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",transition:"all 0.15s",fontWeight:500}}
+                onMouseEnter={e=>{e.currentTarget.style.borderColor=C.red;e.currentTarget.style.color=C.red;}}
+                onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.muted;}}>
+                {q.length>45?q.slice(0,45)+"…":q}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* INPUT */}
+        <div style={{padding:"14px 18px",borderTop:`1px solid ${C.border}`,background:C.surface,borderRadius:"0 0 12px 12px",display:"flex",gap:10,alignItems:"center",flexShrink:0}}>
+          <input value={aiInput} onChange={e=>setAiInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&sendMessage()} disabled={aiLoading}
+            placeholder={`Ask anything about your ${assets.length} assets, costs, compliance, incidents...`}
+            style={{flex:1,border:`1px solid ${C.border}`,borderRadius:9,padding:"11px 16px",fontSize:13,background:C.white,fontFamily:"'DM Sans',sans-serif",color:C.text,outline:"none",opacity:aiLoading?0.6:1}}/>
+          <button onClick={()=>sendMessage()} disabled={!aiInput.trim()||aiLoading} style={{background:aiInput.trim()&&!aiLoading?C.red:C.border,color:"white",border:"none",borderRadius:9,width:44,height:44,cursor:aiInput.trim()&&!aiLoading?"pointer":"default",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,transition:"all 0.15s",flexShrink:0}}>→</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [tab, setTab] = useState("Dashboard");
   const [assets, setAssets] = useState([]);
@@ -12203,779 +12857,35 @@ export default function App() {
               )}
             </div>
           )}
-          {/* ═══════════════════════════════════════════════════════════
-              JOB CARDS
-          ═══════════════════════════════════════════════════════════ */}
-          {tab === "JobCards" && (() => {
-            const dJC = {
-              assetId: "", type: "Breakdown Repair", priority: "High",
-              description: "", reportedBy: "", assignedTo: "",
-              supplierId: "", status: "Open", openedDate: today(),
-              scheduledDate: "", completedDate: "", odometerAtOpen: "",
-              estimatedCost: "", actualCost: "", invoiceNumber: "",
-              partsUsed: [], workDone: "", rootCause: "", notes: "",
-            };
-            const [jcForm, setJcForm] = useState(dJC);
-            const [jcModal, setJcModal] = useState(null);
-            const [jcView, setJcView] = useState(null);
-            const [jcFilter, setJcFilter] = useState("All");
+          {/* JOB CARDS */}
+          {tab === "JobCards" && (
+            <JobCardsTab
+              assets={assets} jobCards={jobCards} setJobCards={setJobCards}
+              spares={spares} setSpares={setSpares} maint={maint} setMaint={setMaint}
+              suppliers={suppliers} employees={employees} projects={projects}
+              siteNames={siteNames} currentUser={currentUser}
+              persist={persist} add={add} update={update} del={del}
+              logAudit={logAudit} toast={toast} can={can} fmt={fmt}
+              today={today} C={C} inp={inp} Field={Field} Row2={Row2}
+              Btn={Btn} Card={Card} Tbl={Tbl} TR={TR} Empty={Empty}
+              KPI={KPI} Pill={Pill} PageTitle={PageTitle} depreciate={depreciate}
+            />
+          )}
 
-            const openJCs = jobCards.filter(j => j.status !== "Complete" && j.status !== "Cancelled" && j.status !== "Invoiced").length;
-            const criticalJCs = jobCards.filter(j => j.priority === "Critical" && j.status !== "Complete" && j.status !== "Cancelled").length;
-            const totalLabourCost = jobCards.reduce((s, j) => s + Number(j.actualCost || 0), 0);
-            const avgResolutionDays = (() => {
-              const completed = jobCards.filter(j => j.completedDate && j.openedDate);
-              if (!completed.length) return null;
-              return (completed.reduce((s, j) => s + Math.max(0, Math.round((new Date(j.completedDate) - new Date(j.openedDate)) / (1000 * 60 * 60 * 24))), 0) / completed.length).toFixed(1);
-            })();
-
-            const filteredJCs = jcFilter === "All" ? jobCards : jobCards.filter(j => j.status === jcFilter);
-
-            const statusColor = s => s === "Complete" || s === "Invoiced" ? "green" : s === "In Progress" ? "blue" : s === "Awaiting Parts" ? "yellow" : s === "Cancelled" ? "gray" : s === "Critical" ? "red" : "yellow";
-            const priorityColor = p => p === "Critical" ? "red" : p === "High" ? "yellow" : p === "Medium" ? "blue" : "gray";
-
-            return (
-              <div>
-                <PageTitle
-                  title="JOB CARD MANAGEMENT"
-                  sub="Full lifecycle workshop control — open, assign, track parts, close and invoice"
-                  action={
-                    can(currentUser, "canAdd") && (
-                      <Btn onClick={() => { setJcForm(dJC); setJcModal("form"); }}>＋ Open Job Card</Btn>
-                    )
-                  }
-                />
-
-                {/* KPIs */}
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(155px,1fr))", gap: 14, marginBottom: 22 }}>
-                  <KPI label="Total Job Cards" value={jobCards.length} color={C.info} icon="🔧" sub="all time" />
-                  <KPI label="Open / Active" value={openJCs} color={openJCs > 0 ? C.warn : C.success} icon="⚑" sub="requiring attention" />
-                  <KPI label="Critical Priority" value={criticalJCs} color={criticalJCs > 0 ? C.red : C.success} icon="⚠" sub="immediate action" />
-                  <KPI label="Total Repair Cost" value={fmt(totalLabourCost)} color={C.muted} icon="₽" sub="all completed cards" />
-                  <KPI label="Avg Resolution" value={avgResolutionDays ? `${avgResolutionDays}d` : "—"} color={C.info} icon="◷" sub="days to complete" />
-                  <KPI label="Completed" value={jobCards.filter(j => j.status === "Complete" || j.status === "Invoiced").length} color={C.success} icon="✓" sub="closed cards" />
-                </div>
-
-                {/* CRITICAL BANNER */}
-                {criticalJCs > 0 && (
-                  <div style={{ background: C.redLight, border: `1px solid ${C.redBorder}`, borderRadius: 10, padding: "14px 18px", marginBottom: 18 }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: C.red, marginBottom: 10 }}>⚠ Critical Job Cards — Immediate Attention Required</div>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                      {jobCards.filter(j => j.priority === "Critical" && j.status !== "Complete" && j.status !== "Cancelled").map(j => {
-                        const asset = assets.find(a => a.id === j.assetId);
-                        const daysOpen = Math.round((new Date() - new Date(j.openedDate)) / (1000 * 60 * 60 * 24));
-                        return (
-                          <div key={j.id} onClick={() => setJcView(j)} style={{ background: C.white, border: `1px solid ${C.redBorder}`, borderRadius: 8, padding: "8px 14px", cursor: "pointer" }}>
-                            <div style={{ fontWeight: 700, fontSize: 12, color: C.text }}>{asset?.name || "—"} — {j.type}</div>
-                            <div style={{ fontSize: 11, color: C.red }}>{daysOpen}d open · {j.status}</div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-
-                {/* FILTER BAR */}
-                <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }} className="np">
-                  {["All", ...JOB_CARD_STATUS].map(s => (
-                    <button key={s} onClick={() => setJcFilter(s)} style={{
-                      padding: "6px 14px", borderRadius: 20, border: `1px solid ${jcFilter === s ? C.red : C.border}`,
-                      background: jcFilter === s ? C.red : C.white, color: jcFilter === s ? "white" : C.muted,
-                      fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans',sans-serif",
-                      transition: "all 0.15s"
-                    }}>
-                      {s} {s !== "All" && jobCards.filter(j => j.status === s).length > 0 && `(${jobCards.filter(j => j.status === s).length})`}
-                    </button>
-                  ))}
-                </div>
-
-                {/* JOB CARD TABLE */}
-                {filteredJCs.length === 0 ? (
-                  <Empty icon="🔧" title={jcFilter === "All" ? "No job cards yet" : `No ${jcFilter} job cards`}
-                    desc="Open a job card for every maintenance task — scheduled or breakdown. This creates a full audit trail from fault reported to invoice paid."
-                    btn={<Btn onClick={() => { setJcForm(dJC); setJcModal("form"); }}>Open First Job Card</Btn>} />
-                ) : (
-                  <Card>
-                    <Tbl cols={["JC No.", "Asset", "Type", "Priority", "Status", "Assigned To", "Opened", "Est. Cost", "Actual Cost", "Parts Used", ""]}>
-                      {[...filteredJCs].sort((a, b) => {
-                        const po = { Critical: 0, High: 1, Medium: 2, Low: 3 };
-                        if (a.status !== "Complete" && b.status === "Complete") return -1;
-                        if (a.status === "Complete" && b.status !== "Complete") return 1;
-                        return (po[a.priority] || 2) - (po[b.priority] || 2);
-                      }).map((j, i) => {
-                        const asset = assets.find(a => a.id === j.assetId);
-                        const supplier = suppliers.find(s => s.id === j.supplierId);
-                        const daysOpen = j.completedDate
-                          ? Math.round((new Date(j.completedDate) - new Date(j.openedDate)) / (1000 * 60 * 60 * 24))
-                          : Math.round((new Date() - new Date(j.openedDate)) / (1000 * 60 * 60 * 24));
-                        const partsTotal = (j.partsUsed || []).reduce((s, p) => s + (Number(p.qty) * Number(p.unitCost || 0)), 0);
-                        const jcNumber = `JC-${j.id.slice(-6).toUpperCase()}`;
-                        return (
-                          <TR key={j.id} stripe={i % 2 !== 0} cells={[
-                            <div>
-                              <div style={{ fontFamily: "monospace", fontSize: 11, fontWeight: 700, color: C.red }}>{jcNumber}</div>
-                              <div style={{ fontSize: 10, color: C.muted }}>{daysOpen}d {j.completedDate ? "total" : "open"}</div>
-                            </div>,
-                            <div>
-                              <div style={{ fontWeight: 700, fontSize: 12, color: C.text }}>{asset?.name || "—"}</div>
-                              <div style={{ fontSize: 10, color: C.mutedLt }}>{asset?.category || ""}</div>
-                            </div>,
-                            <span style={{ fontSize: 12 }}>{j.type}</span>,
-                            <Pill text={j.priority} color={priorityColor(j.priority)} />,
-                            <Pill text={j.status} color={statusColor(j.status)} />,
-                            <span style={{ fontSize: 12, color: C.muted }}>{j.assignedTo || supplier?.name || "Unassigned"}</span>,
-                            <span style={{ fontSize: 12, color: C.muted }}>{j.openedDate}</span>,
-                            <span style={{ fontSize: 12 }}>{j.estimatedCost ? fmt(j.estimatedCost) : "—"}</span>,
-                            <span style={{ fontWeight: 700, color: j.actualCost ? C.text : C.mutedLt }}>{j.actualCost ? fmt(j.actualCost) : "—"}</span>,
-                            <div>
-                              {(j.partsUsed || []).length > 0 ? (
-                                <div>
-                                  <Pill text={`${(j.partsUsed || []).length} part${(j.partsUsed || []).length !== 1 ? "s" : ""}`} color="blue" />
-                                  <div style={{ fontSize: 10, color: C.muted, marginTop: 2 }}>{fmt(partsTotal)}</div>
-                                </div>
-                              ) : <span style={{ color: C.mutedLt, fontSize: 11 }}>None</span>}
-                            </div>,
-                            <div style={{ display: "flex", gap: 4 }}>
-                              <button onClick={() => setJcView(j)} style={{ color: C.info, background: "none", border: "none", cursor: "pointer", fontSize: 11, fontWeight: 600, fontFamily: "'DM Sans',sans-serif" }}>View</button>
-                              {can(currentUser, "canEdit") && j.status !== "Invoiced" && (
-                                <button onClick={() => { setJcForm({ ...dJC, ...j }); setJcModal("form"); }} style={{ color: C.warn, background: "none", border: "none", cursor: "pointer", fontSize: 11, fontWeight: 600, fontFamily: "'DM Sans',sans-serif" }}>Edit</button>
-                              )}
-                              {can(currentUser, "canDelete") && (
-                                <button onClick={() => del("mcw_jobcards", setJobCards, jobCards, j.id)} style={{ color: C.muted, background: "none", border: "none", cursor: "pointer", fontSize: 14, padding: "0 4px" }}>×</button>
-                              )}
-                            </div>
-                          ]} />
-                        );
-                      })}
-                    </Tbl>
-                  </Card>
-                )}
-
-                {/* JOB CARD FORM MODAL */}
-                {jcModal === "form" && (
-                  <div style={{ position: "fixed", inset: 0, background: "rgba(17,19,24,0.7)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999, padding: 20, backdropFilter: "blur(3px)" }}>
-                    <div style={{ background: C.white, borderRadius: 14, width: "100%", maxWidth: 680, maxHeight: "92vh", overflowY: "auto", boxShadow: "0 24px 80px rgba(0,0,0,0.3)", border: `1px solid ${C.border}` }}>
-                      <div style={{ padding: "20px 28px", borderBottom: `1px solid ${C.border}`, background: C.surface, display: "flex", justifyContent: "space-between", alignItems: "center", position: "sticky", top: 0, zIndex: 10 }}>
-                        <div>
-                          <div style={{ fontSize: 15, fontWeight: 700, color: C.text }}>{jcForm.id ? `Edit Job Card JC-${jcForm.id.slice(-6).toUpperCase()}` : "Open New Job Card"}</div>
-                          <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>Complete all details for a full audit trail</div>
-                        </div>
-                        <button onClick={() => setJcModal(null)} style={{ background: "none", border: "none", fontSize: 18, cursor: "pointer", color: C.mutedLt }}>✕</button>
-                      </div>
-                      <div style={{ padding: "22px 28px" }}>
-                        {/* SECTION: Job Details */}
-                        <div style={{ fontSize: 11, fontWeight: 700, color: C.red, textTransform: "uppercase", letterSpacing: 1, marginBottom: 12 }}>Job Details</div>
-                        <Field label="Asset" required>
-                          <select {...inp} value={jcForm.assetId} onChange={e => setJcForm({ ...jcForm, assetId: e.target.value })}>
-                            <option value="">— Select Asset —</option>
-                            {assets.map(a => <option key={a.id} value={a.id}>{a.name} · {a.category} · {a.location}</option>)}
-                          </select>
-                        </Field>
-                        <Row2>
-                          <Field label="Job Type" required>
-                            <select {...inp} value={jcForm.type} onChange={e => setJcForm({ ...jcForm, type: e.target.value })}>
-                              {JOB_CARD_TYPE.map(t => <option key={t}>{t}</option>)}
-                            </select>
-                          </Field>
-                          <Field label="Priority" required>
-                            <select {...inp} value={jcForm.priority} onChange={e => setJcForm({ ...jcForm, priority: e.target.value })}>
-                              {JOB_CARD_PRIORITY.map(p => <option key={p}>{p}</option>)}
-                            </select>
-                          </Field>
-                        </Row2>
-                        <Field label="Fault Description / Work Required" required>
-                          <input {...inp} value={jcForm.description} onChange={e => setJcForm({ ...jcForm, description: e.target.value })} placeholder="Describe the fault, symptoms or work to be carried out in detail..." />
-                        </Field>
-                        <Row2>
-                          <Field label="Reported By">
-                            <input {...inp} value={jcForm.reportedBy} onChange={e => setJcForm({ ...jcForm, reportedBy: e.target.value })} placeholder="Who reported the fault?" />
-                          </Field>
-                          <Field label="Odometer / Hours at Open">
-                            <input {...inp} value={jcForm.odometerAtOpen} onChange={e => setJcForm({ ...jcForm, odometerAtOpen: e.target.value })} placeholder="e.g. 14 500 km or 890 hrs" />
-                          </Field>
-                        </Row2>
-
-                        {/* SECTION: Assignment */}
-                        <div style={{ fontSize: 11, fontWeight: 700, color: C.red, textTransform: "uppercase", letterSpacing: 1, margin: "20px 0 12px" }}>Assignment & Scheduling</div>
-                        <Row2>
-                          <Field label="Assign To (Internal)">
-                            {employees.length > 0 ? (
-                              <select {...inp} value={jcForm.assignedTo} onChange={e => setJcForm({ ...jcForm, assignedTo: e.target.value })}>
-                                <option value="">— Internal Employee —</option>
-                                {employees.filter(e => e.status === "Active").map(e => <option key={e.id} value={e.name}>{e.name} · {e.role}</option>)}
-                              </select>
-                            ) : (
-                              <input {...inp} value={jcForm.assignedTo} onChange={e => setJcForm({ ...jcForm, assignedTo: e.target.value })} placeholder="Mechanic or technician name" />
-                            )}
-                          </Field>
-                          <Field label="External Supplier">
-                            <select {...inp} value={jcForm.supplierId} onChange={e => setJcForm({ ...jcForm, supplierId: e.target.value })}>
-                              <option value="">— No External Supplier —</option>
-                              {suppliers.map(s => <option key={s.id} value={s.id}>{s.name} · {s.type}</option>)}
-                            </select>
-                          </Field>
-                        </Row2>
-                        <Row2>
-                          <Field label="Date Opened" required>
-                            <input type="date" {...inp} value={jcForm.openedDate} onChange={e => setJcForm({ ...jcForm, openedDate: e.target.value })} />
-                          </Field>
-                          <Field label="Scheduled Date">
-                            <input type="date" {...inp} value={jcForm.scheduledDate} onChange={e => setJcForm({ ...jcForm, scheduledDate: e.target.value })} />
-                          </Field>
-                        </Row2>
-
-                        {/* SECTION: Status & Costs */}
-                        <div style={{ fontSize: 11, fontWeight: 700, color: C.red, textTransform: "uppercase", letterSpacing: 1, margin: "20px 0 12px" }}>Status & Costs</div>
-                        <Row2>
-                          <Field label="Status" required>
-                            <select {...inp} value={jcForm.status} onChange={e => setJcForm({ ...jcForm, status: e.target.value })}>
-                              {JOB_CARD_STATUS.map(s => <option key={s}>{s}</option>)}
-                            </select>
-                          </Field>
-                          <Field label="Completed Date">
-                            <input type="date" {...inp} value={jcForm.completedDate} onChange={e => setJcForm({ ...jcForm, completedDate: e.target.value })} />
-                          </Field>
-                        </Row2>
-                        <Row2>
-                          <Field label="Estimated Cost (R)">
-                            <input type="number" {...inp} value={jcForm.estimatedCost} onChange={e => setJcForm({ ...jcForm, estimatedCost: e.target.value })} placeholder="0.00" />
-                          </Field>
-                          <Field label="Actual / Invoice Cost (R)">
-                            <input type="number" {...inp} value={jcForm.actualCost} onChange={e => setJcForm({ ...jcForm, actualCost: e.target.value })} placeholder="0.00" />
-                          </Field>
-                        </Row2>
-                        <Row2>
-                          <Field label="Invoice / Reference Number">
-                            <input {...inp} value={jcForm.invoiceNumber} onChange={e => setJcForm({ ...jcForm, invoiceNumber: e.target.value })} placeholder="Supplier invoice number" />
-                          </Field>
-                          <Field label="Root Cause">
-                            <input {...inp} value={jcForm.rootCause} onChange={e => setJcForm({ ...jcForm, rootCause: e.target.value })} placeholder="What caused the fault?" />
-                          </Field>
-                        </Row2>
-                        <Field label="Work Done / Resolution Notes">
-                          <input {...inp} value={jcForm.workDone} onChange={e => setJcForm({ ...jcForm, workDone: e.target.value })} placeholder="Describe work completed, repairs made, parts replaced..." />
-                        </Field>
-
-                        {/* SECTION: Parts Used */}
-                        <div style={{ fontSize: 11, fontWeight: 700, color: C.red, textTransform: "uppercase", letterSpacing: 1, margin: "20px 0 12px" }}>
-                          Parts & Spares Used
-                          <span style={{ fontSize: 10, color: C.muted, fontWeight: 400, marginLeft: 8, textTransform: "none" }}>— deducted from inventory on save</span>
-                        </div>
-                        <div style={{ background: C.surface, borderRadius: 8, border: `1px solid ${C.border}`, overflow: "hidden", marginBottom: 14 }}>
-                          {(jcForm.partsUsed || []).length > 0 && (
-                            <div style={{ padding: "10px 14px", borderBottom: `1px solid ${C.border}` }}>
-                              {(jcForm.partsUsed || []).map((p, idx) => (
-                                <div key={idx} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: idx < (jcForm.partsUsed || []).length - 1 ? 8 : 0 }}>
-                                  <div style={{ flex: 2, fontSize: 12, fontWeight: 600, color: C.text }}>{p.partName}</div>
-                                  <div style={{ flex: 1, fontSize: 12, color: C.muted }}>Qty: {p.qty}</div>
-                                  <div style={{ flex: 1, fontSize: 12, color: C.muted }}>{p.unitCost ? fmt(p.unitCost) + "/unit" : "No cost"}</div>
-                                  <div style={{ fontSize: 12, fontWeight: 700, color: C.text, flex: 1 }}>{p.unitCost ? fmt(Number(p.qty) * Number(p.unitCost)) : "—"}</div>
-                                  <button onClick={() => setJcForm({ ...jcForm, partsUsed: (jcForm.partsUsed || []).filter((_, i) => i !== idx) })}
-                                    style={{ background: "none", border: "none", color: C.muted, cursor: "pointer", fontSize: 14 }}>×</button>
-                                </div>
-                              ))}
-                              <div style={{ borderTop: `1px solid ${C.border}`, marginTop: 8, paddingTop: 8, display: "flex", justifyContent: "flex-end" }}>
-                                <span style={{ fontSize: 12, fontWeight: 800, color: C.text }}>Parts Total: {fmt((jcForm.partsUsed || []).reduce((s, p) => s + Number(p.qty || 0) * Number(p.unitCost || 0), 0))}</span>
-                              </div>
-                            </div>
-                          )}
-                          <div style={{ padding: "12px 14px" }}>
-                            <div style={{ fontSize: 11, color: C.muted, marginBottom: 8, fontWeight: 600 }}>Add part from inventory:</div>
-                            <div style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
-                              <div style={{ flex: 2 }}>
-                                <select style={{ ...inp.style, fontSize: 12 }} id="jc_part_select" defaultValue="">
-                                  <option value="">— Select Part —</option>
-                                  {spares.filter(s => Number(s.quantity || 0) > 0).map(s => (
-                                    <option key={s.id} value={s.id}>{s.partName} {s.partNumber ? `(${s.partNumber})` : ""} — {s.quantity} in stock @ {s.unitCost ? fmt(s.unitCost) : "no cost"}</option>
-                                  ))}
-                                </select>
-                              </div>
-                              <div style={{ flex: 1 }}>
-                                <input type="number" id="jc_part_qty" min="1" defaultValue="1" style={{ ...inp.style, fontSize: 12 }} placeholder="Qty" />
-                              </div>
-                              <Btn size="sm" variant="outline" onClick={() => {
-                                const sel = document.getElementById("jc_part_select");
-                                const qty = document.getElementById("jc_part_qty");
-                                if (!sel.value) { toast("Select a part first.", "error"); return; }
-                                const spare = spares.find(s => s.id === sel.value);
-                                if (!spare) return;
-                                const qtyNum = Math.max(1, Number(qty.value || 1));
-                                if (qtyNum > Number(spare.quantity || 0)) { toast(`Only ${spare.quantity} units in stock.`, "error"); return; }
-                                const existing = (jcForm.partsUsed || []).findIndex(p => p.spareId === spare.id);
-                                if (existing >= 0) {
-                                  const updated = [...(jcForm.partsUsed || [])];
-                                  updated[existing] = { ...updated[existing], qty: Number(updated[existing].qty) + qtyNum };
-                                  setJcForm({ ...jcForm, partsUsed: updated });
-                                } else {
-                                  setJcForm({ ...jcForm, partsUsed: [...(jcForm.partsUsed || []), { spareId: spare.id, partName: spare.partName, partNumber: spare.partNumber || "", qty: qtyNum, unitCost: spare.unitCost || 0 }] });
-                                }
-                                sel.value = ""; qty.value = "1";
-                              }}>＋ Add Part</Btn>
-                            </div>
-                          </div>
-                        </div>
-
-                        <Field label="Additional Notes">
-                          <input {...inp} value={jcForm.notes} onChange={e => setJcForm({ ...jcForm, notes: e.target.value })} placeholder="Any other notes, safety observations, follow-up required..." />
-                        </Field>
-
-                        {/* SAVE */}
-                        <div style={{ display: "flex", gap: 10, marginTop: 20, paddingTop: 16, borderTop: `1px solid ${C.border}` }}>
-                          <Btn style={{ flex: 1, justifyContent: "center" }} onClick={() => {
-                            if (!jcForm.assetId || !jcForm.description) { toast("Select an asset and describe the work required.", "error"); return; }
-                            // Deduct parts from spares inventory
-                            if ((jcForm.partsUsed || []).length > 0 && !jcForm.id) {
-                              const updatedSpares = spares.map(s => {
-                                const used = (jcForm.partsUsed || []).find(p => p.spareId === s.id);
-                                if (!used) return s;
-                                const newQty = Math.max(0, Number(s.quantity || 0) - Number(used.qty || 0));
-                                return { ...s, quantity: newQty, status: newQty === 0 ? "Out of Stock" : Number(newQty) <= Number(s.minStockLevel || 0) ? "Low Stock" : "In Stock" };
-                              });
-                              setSpares(updatedSpares);
-                              persist("mcw_spares", updatedSpares);
-                            }
-                            // Auto-create maintenance record on completion
-                            if ((jcForm.status === "Complete" || jcForm.status === "Invoiced") && jcForm.actualCost && !jcForm.id) {
-                              const maintRecord = { id: Date.now().toString() + "jc", assetId: jcForm.assetId, date: jcForm.completedDate || today(), type: jcForm.type.includes("Service") ? "Full Service" : "Repair", description: `[Job Card JC-${Date.now().toString().slice(-6).toUpperCase()}] ${jcForm.workDone || jcForm.description}`, cost: jcForm.actualCost, performedBy: jcForm.assignedTo || (suppliers.find(s => s.id === jcForm.supplierId)?.name || ""), nextDueDate: "" };
-                              const updatedMaint = [...maint, maintRecord];
-                              setMaint(updatedMaint);
-                              persist("mcw_maint", updatedMaint);
-                            }
-                            if (jcForm.id) {
-                              update("mcw_jobcards", setJobCards, jobCards, jcForm.id, jcForm);
-                              toast("Job card updated.");
-                            } else {
-                              add("mcw_jobcards", setJobCards, jobCards, jcForm);
-                              toast(`Job card opened — JC created.${(jcForm.partsUsed || []).length > 0 ? ` ${(jcForm.partsUsed || []).length} part(s) deducted from inventory.` : ""}${jcForm.status === "Complete" ? " Maintenance record auto-created." : ""}`);
-                            }
-                            setJcModal(null);
-                          }}>
-                            {jcForm.id ? "Save Changes" : "Open Job Card"}
-                          </Btn>
-                          <Btn variant="ghost" onClick={() => setJcModal(null)}>Cancel</Btn>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* JOB CARD VIEW / PRINT MODAL */}
-                {jcView && (() => {
-                  const asset = assets.find(a => a.id === jcView.assetId);
-                  const supplier = suppliers.find(s => s.id === jcView.supplierId);
-                  const partsTotal = (jcView.partsUsed || []).reduce((s, p) => s + Number(p.qty || 0) * Number(p.unitCost || 0), 0);
-                  const daysOpen = jcView.completedDate
-                    ? Math.round((new Date(jcView.completedDate) - new Date(jcView.openedDate)) / (1000 * 60 * 60 * 24))
-                    : Math.round((new Date() - new Date(jcView.openedDate)) / (1000 * 60 * 60 * 24));
-                  const jcNumber = `JC-${jcView.id.slice(-6).toUpperCase()}`;
-                  return (
-                    <div style={{ position: "fixed", inset: 0, background: "rgba(17,19,24,0.75)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999, padding: 20, backdropFilter: "blur(4px)" }}>
-                      <div style={{ background: C.white, borderRadius: 14, width: "100%", maxWidth: 720, maxHeight: "94vh", overflowY: "auto", boxShadow: "0 32px 100px rgba(0,0,0,0.4)" }}>
-                        {/* JC HEADER */}
-                        <div style={{ background: C.dark, padding: "24px 32px", borderRadius: "14px 14px 0 0" }}>
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                            <div>
-                              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
-                                <div style={{ background: C.red, borderRadius: 6, padding: "4px 12px" }}>
-                                  <span style={{ color: "white", fontSize: 11, fontWeight: 900, fontFamily: "monospace", letterSpacing: 1 }}>{jcNumber}</span>
-                                </div>
-                                <Pill text={jcView.priority} color={priorityColor(jcView.priority)} />
-                                <Pill text={jcView.status} color={statusColor(jcView.status)} />
-                              </div>
-                              <div style={{ fontSize: 20, fontWeight: 800, color: "white", fontFamily: "'Barlow Condensed',sans-serif", letterSpacing: 0.5 }}>{asset?.name || "Unknown Asset"}</div>
-                              <div style={{ fontSize: 12, color: "#6B7280", marginTop: 2 }}>{asset?.category} · {asset?.serialNumber || "No serial"} · {asset?.location}</div>
-                            </div>
-                            <div style={{ display: "flex", gap: 8 }}>
-                              <button onClick={() => window.print()} style={{ background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 6, padding: "7px 14px", color: "white", fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans',sans-serif" }}>⬒ Print</button>
-                              <button onClick={() => setJcView(null)} style={{ background: "none", border: "none", color: "#6B7280", fontSize: 18, cursor: "pointer" }}>✕</button>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div style={{ padding: "24px 32px" }}>
-                          {/* FAULT INFO */}
-                          <div style={{ background: C.redLight, border: `1px solid ${C.redBorder}`, borderRadius: 9, padding: "14px 18px", marginBottom: 20 }}>
-                            <div style={{ fontSize: 11, color: C.red, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 6 }}>Fault / Work Description</div>
-                            <div style={{ fontSize: 13, color: C.text, fontWeight: 600 }}>{jcView.description}</div>
-                            {jcView.reportedBy && <div style={{ fontSize: 11, color: C.muted, marginTop: 4 }}>Reported by: {jcView.reportedBy}</div>}
-                          </div>
-
-                          {/* DETAILS GRID */}
-                          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 20 }}>
-                            {[
-                              { l: "Job Type", v: jcView.type },
-                              { l: "Date Opened", v: jcView.openedDate },
-                              { l: "Days Open/Duration", v: `${daysOpen} day${daysOpen !== 1 ? "s" : ""}` },
-                              { l: "Assigned To", v: jcView.assignedTo || supplier?.name || "Unassigned" },
-                              { l: "Scheduled Date", v: jcView.scheduledDate || "Not scheduled" },
-                              { l: "Completed Date", v: jcView.completedDate || "Not completed" },
-                              { l: "Odometer / Hours", v: jcView.odometerAtOpen || "Not recorded" },
-                              { l: "Invoice Number", v: jcView.invoiceNumber || "Not invoiced" },
-                              { l: "Root Cause", v: jcView.rootCause || "Not identified" },
-                            ].map(item => (
-                              <div key={item.l} style={{ background: C.surface, borderRadius: 7, padding: "10px 12px" }}>
-                                <div style={{ fontSize: 9, color: C.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 3 }}>{item.l}</div>
-                                <div style={{ fontSize: 12, fontWeight: 600, color: C.text }}>{item.v}</div>
-                              </div>
-                            ))}
-                          </div>
-
-                          {/* COSTS */}
-                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 20 }}>
-                            {[
-                              { l: "Estimated Cost", v: jcView.estimatedCost ? fmt(jcView.estimatedCost) : "—", c: C.muted },
-                              { l: "Parts Cost", v: fmt(partsTotal), c: C.info },
-                              { l: "Total Actual Cost", v: jcView.actualCost ? fmt(Number(jcView.actualCost) + partsTotal) : fmt(partsTotal), c: C.red },
-                            ].map(item => (
-                              <div key={item.l} style={{ background: C.surface, borderRadius: 7, padding: "12px 14px", borderLeft: `3px solid ${item.c}` }}>
-                                <div style={{ fontSize: 9, color: C.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>{item.l}</div>
-                                <div style={{ fontSize: 18, fontWeight: 800, color: item.c, fontFamily: "'Barlow Condensed',sans-serif" }}>{item.v}</div>
-                              </div>
-                            ))}
-                          </div>
-
-                          {/* PARTS TABLE */}
-                          {(jcView.partsUsed || []).length > 0 && (
-                            <div style={{ marginBottom: 20 }}>
-                              <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 10 }}>Parts & Spares Used</div>
-                              <div style={{ border: `1px solid ${C.border}`, borderRadius: 8, overflow: "hidden" }}>
-                                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-                                  <thead>
-                                    <tr style={{ background: C.surface }}>
-                                      {["Part Name", "Part No.", "Qty", "Unit Cost", "Total"].map(h => (
-                                        <th key={h} style={{ padding: "8px 12px", textAlign: "left", color: C.muted, fontWeight: 700, fontSize: 10, textTransform: "uppercase", borderBottom: `1px solid ${C.border}` }}>{h}</th>
-                                      ))}
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {(jcView.partsUsed || []).map((p, i) => (
-                                      <tr key={i} style={{ background: i % 2 === 0 ? C.white : C.surface, borderBottom: `1px solid ${C.border}` }}>
-                                        <td style={{ padding: "8px 12px", fontWeight: 600 }}>{p.partName}</td>
-                                        <td style={{ padding: "8px 12px", color: C.muted, fontFamily: "monospace" }}>{p.partNumber || "—"}</td>
-                                        <td style={{ padding: "8px 12px", fontWeight: 700, color: C.info }}>{p.qty}</td>
-                                        <td style={{ padding: "8px 12px" }}>{p.unitCost ? fmt(p.unitCost) : "—"}</td>
-                                        <td style={{ padding: "8px 12px", fontWeight: 700 }}>{p.unitCost ? fmt(Number(p.qty) * Number(p.unitCost)) : "—"}</td>
-                                      </tr>
-                                    ))}
-                                    <tr style={{ background: C.dark }}>
-                                      <td colSpan={4} style={{ padding: "8px 12px", fontWeight: 800, color: "white", fontSize: 11, textTransform: "uppercase" }}>Parts Total</td>
-                                      <td style={{ padding: "8px 12px", fontWeight: 800, color: "#93C5FD", fontFamily: "'Barlow Condensed',sans-serif", fontSize: 15 }}>{fmt(partsTotal)}</td>
-                                    </tr>
-                                  </tbody>
-                                </table>
-                              </div>
-                            </div>
-                          )}
-
-                          {/* WORK DONE & NOTES */}
-                          {jcView.workDone && (
-                            <div style={{ background: C.successBg, border: "1px solid #A7F3D0", borderRadius: 9, padding: "14px 18px", marginBottom: 14 }}>
-                              <div style={{ fontSize: 11, color: C.success, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 6 }}>Work Completed</div>
-                              <div style={{ fontSize: 13, color: C.text }}>{jcView.workDone}</div>
-                            </div>
-                          )}
-                          {jcView.notes && (
-                            <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 9, padding: "12px 16px" }}>
-                              <div style={{ fontSize: 11, color: C.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 4 }}>Notes</div>
-                              <div style={{ fontSize: 12, color: C.text }}>{jcView.notes}</div>
-                            </div>
-                          )}
-
-                          {/* SIGNATURE BLOCKS */}
-                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16, marginTop: 24, paddingTop: 20, borderTop: `2px solid ${C.border}` }}>
-                            {["Technician / Mechanic", "Supervisor / Foreman", "Plant Manager"].map(role => (
-                              <div key={role} style={{ textAlign: "center" }}>
-                                <div style={{ height: 50, borderBottom: `1px solid ${C.text}`, marginBottom: 6 }} />
-                                <div style={{ fontSize: 10, color: C.muted, fontWeight: 600 }}>{role}</div>
-                                <div style={{ fontSize: 9, color: C.mutedLt, marginTop: 2 }}>Signature & Date</div>
-                              </div>
-                            ))}
-                          </div>
-
-                          <div style={{ marginTop: 16, display: "flex", gap: 10, justifyContent: "flex-end" }}>
-                            {can(currentUser, "canEdit") && jcView.status !== "Invoiced" && (
-                              <Btn variant="outline" size="sm" onClick={() => { setJcForm({ ...dJC, ...jcView }); setJcView(null); setJcModal("form"); }}>Edit Job Card</Btn>
-                            )}
-                            <Btn variant="ghost" size="sm" onClick={() => setJcView(null)}>Close</Btn>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })()}
-              </div>
-            );
-          })()}
-
-          {/* ═══════════════════════════════════════════════════════════
-              AI PLANT ASSISTANT
-          ═══════════════════════════════════════════════════════════ */}
-          {tab === "AIAssist" && (() => {
-            const QUICK_PROMPTS = [
-              "Which asset is costing us the most in maintenance this year?",
-              "Which assets are due for service in the next 30 days?",
-              "Which operator has the most incidents on record?",
-              "What is the total cost of ownership of our TLBs?",
-              "Which assets have not been used or fuelled this month?",
-              "Summarise our fleet health — what needs urgent attention?",
-              "Which supplier do we spend the most money with?",
-              "What is our average fuel cost per litre across all assets?",
-              "List all assets that are fully depreciated but still active.",
-              "Which project is most over budget right now?",
-            ];
-
-            const buildFleetContext = () => {
-              const depreciationSummary = assets.map(a => {
-                const d = depreciate(a);
-                return { name: a.name, category: a.category, purchaseCost: Number(a.purchaseCost || 0), bookValue: Math.round(d.bookValue), accDepr: Math.round(d.accumulated), status: a.status, location: a.location };
-              });
-              const maintSummary = assets.map(a => ({
-                asset: a.name,
-                totalMaintCost: maint.filter(m => m.assetId === a.id).reduce((s, m) => s + Number(m.cost || 0), 0),
-                maintCount: maint.filter(m => m.assetId === a.id).length,
-                lastMaint: [...maint].filter(m => m.assetId === a.id).sort((x, y) => y.date > x.date ? 1 : -1)[0]?.date || "never",
-                overdue: maint.some(m => m.assetId === a.id && m.nextDueDate && m.nextDueDate < today()),
-              }));
-              const fuelSummary = assets.map(a => ({
-                asset: a.name,
-                totalFuelCost: fuel.filter(f => f.assetId === a.id).reduce((s, f) => s + Number(f.cost || 0), 0),
-                totalLitres: fuel.filter(f => f.assetId === a.id).reduce((s, f) => s + Number(f.litres || 0), 0),
-              }));
-              return `
-You are the AI Plant Assistant for Mapitsi Civil Works — a professional South African civil engineering and construction company. You have complete access to their fleet management data. Answer questions with precision, use South African Rand (R), and be direct and professional. Where relevant, highlight risks, savings opportunities or compliance issues.
-
-COMPANY: ${company.name || "Mapitsi Civil Works"} | ${company.city || "Johannesburg"} | ${company.phone || "011 394 7343"}
-TODAY: ${today()}
-CURRENT MONTH: ${monthLabel(today().slice(0, 7))}
-
-=== FLEET OVERVIEW ===
-Total Assets: ${assets.length} (${assets.filter(a => a.status === "Active").length} Active, ${assets.filter(a => a.status === "Under Maintenance").length} Under Maintenance, ${assets.filter(a => a.status === "Disposed").length} Disposed)
-Total Acquisition Cost: R ${totalCost.toLocaleString()}
-Total Net Book Value: R ${Math.round(totalBook).toLocaleString()}
-Total Accumulated Depreciation: R ${Math.round(totalCost - totalBook).toLocaleString()}
-
-=== ASSETS ===
-${JSON.stringify(depreciationSummary, null, 1)}
-
-=== MAINTENANCE SUMMARY PER ASSET ===
-${JSON.stringify(maintSummary, null, 1)}
-Total Maintenance Cost (All Time): R ${maint.reduce((s, m) => s + Number(m.cost || 0), 0).toLocaleString()}
-Overdue Maintenance Records: ${maint.filter(m => m.nextDueDate && m.nextDueDate < today()).length}
-
-=== FUEL SUMMARY PER ASSET ===
-${JSON.stringify(fuelSummary, null, 1)}
-Total Fuel Cost (All Time): R ${fuel.reduce((s, f) => s + Number(f.cost || 0), 0).toLocaleString()}
-Total Litres (All Time): ${fuel.reduce((s, f) => s + Number(f.litres || 0), 0).toFixed(0)}L
-Average Cost per Litre: R ${fuel.reduce((s, f) => s + Number(f.litres || 0), 0) > 0 ? (fuel.reduce((s, f) => s + Number(f.cost || 0), 0) / fuel.reduce((s, f) => s + Number(f.litres || 0), 0)).toFixed(2) : "N/A"}
-
-=== ACTIVE PROJECTS (${projects.filter(p => p.status === "Active").length}) ===
-${JSON.stringify(projects.filter(p => p.status === "Active").map(p => { const sp = getProjectSpend(p.id); return { name: p.name, site: p.site, contractValue: Number(p.contractValue || 0), spent: Math.round(sp.total), remaining: Math.round(Number(p.contractValue || 0) - sp.total) }; }), null, 1)}
-
-=== EMPLOYEES (${employees.length}) ===
-Roles: ${[...new Set(employees.map(e => e.role))].join(", ")}
-Currently on Leave: ${employeesOnLeave}
-
-=== COMPLIANCE ===
-Total Documents: ${compliance.length}
-Expired: ${compliance.filter(c => c.expiryDate && c.expiryDate < today()).length}
-Expiring in 30 Days: ${expiringSoon.length}
-
-=== INCIDENTS ===
-Total Incidents: ${incidents.length}
-Open/Unresolved: ${incidents.filter(i => i.resolved === "No").length}
-Total Downtime Hours: ${incidents.reduce((s, i) => s + Number(i.downtimeHours || 0), 0).toFixed(1)} hrs
-Total Repair Costs: R ${incidents.reduce((s, i) => s + Number(i.repairCost || 0), 0).toLocaleString()}
-
-=== SPARES INVENTORY ===
-Total Parts: ${spares.length}
-Low Stock: ${spares.filter(s => Number(s.quantity || 0) <= Number(s.minStockLevel || 0) && Number(s.minStockLevel || 0) > 0).length}
-Out of Stock: ${spares.filter(s => Number(s.quantity || 0) === 0).length}
-Inventory Value: R ${spares.reduce((s, x) => s + Number(x.quantity || 0) * Number(x.unitCost || 0), 0).toLocaleString()}
-
-=== JOB CARDS ===
-Total: ${jobCards.length}
-Open/Active: ${jobCards.filter(j => j.status !== "Complete" && j.status !== "Cancelled" && j.status !== "Invoiced").length}
-Critical: ${jobCards.filter(j => j.priority === "Critical" && j.status !== "Complete" && j.status !== "Cancelled").length}
-
-=== CURRENT ALERTS ===
-Critical: ${allAlerts.filter(a => a.severity === "critical").length}
-Warnings: ${allAlerts.filter(a => a.severity === "warning").length}
-Info: ${allAlerts.filter(a => a.severity === "info").length}
-`;
-            };
-
-            const sendMessage = async (messageText) => {
-              const text = messageText || aiInput.trim();
-              if (!text || aiLoading) return;
-              setAiInput("");
-              const userMsg = { role: "user", content: text, ts: Date.now() };
-              setAiMessages(prev => [...prev, userMsg]);
-              setAiLoading(true);
-              try {
-                const systemContext = buildFleetContext();
-                const conversationHistory = [...aiMessages, userMsg]
-                  .filter(m => m.role === "user" || m.role === "assistant")
-                  .slice(-10)
-                  .map(m => ({ role: m.role, content: m.content }));
-                const response = await fetch("https://api.anthropic.com/v1/messages", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({
-                    model: "claude-sonnet-4-20250514",
-                    max_tokens: 1000,
-                    system: systemContext,
-                    messages: conversationHistory,
-                  }),
-                });
-                const data = await response.json();
-                const replyText = data.content?.find(b => b.type === "text")?.text || "I couldn't generate a response. Please try again.";
-                setAiMessages(prev => [...prev, { role: "assistant", content: replyText, ts: Date.now() }]);
-              } catch (err) {
-                setAiMessages(prev => [...prev, { role: "assistant", content: "⚠ Connection error. Please check your internet connection and try again.", ts: Date.now() }]);
-              }
-              setAiLoading(false);
-            };
-
-            return (
-              <div style={{ display: "flex", flexDirection: "column", height: "calc(100vh - 130px)" }}>
-                {/* HEADER */}
-                <div style={{ marginBottom: 20, flexShrink: 0 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 8 }}>
-                    <div style={{ width: 48, height: 48, background: "linear-gradient(135deg, #8C1414 0%, #1C2030 100%)", borderRadius: 12, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, boxShadow: "0 4px 16px rgba(140,20,20,0.3)", flexShrink: 0 }}>✦</div>
-                    <div>
-                      <div style={{ fontSize: 22, fontWeight: 800, color: C.text, letterSpacing: -0.5, fontFamily: "'Barlow Condensed',sans-serif" }}>AI PLANT ASSISTANT</div>
-                      <div style={{ fontSize: 13, color: C.muted }}>Powered by Claude · Full access to your live fleet data · Ask anything</div>
-                    </div>
-                    <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-                      {aiMessages.length > 0 && (
-                        <Btn variant="ghost" size="sm" onClick={() => setAiMessages([])}>Clear Chat</Btn>
-                      )}
-                      <div style={{ background: C.successBg, border: "1px solid #A7F3D0", borderRadius: 20, padding: "4px 12px", fontSize: 11, color: C.success, fontWeight: 700 }}>
-                        ● LIVE — {assets.length} assets · {maint.length} maint records · {fuel.length} fuel logs
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* CHAT AREA */}
-                <div style={{ flex: 1, overflowY: "auto", background: C.white, borderRadius: 12, border: `1px solid ${C.border}`, display: "flex", flexDirection: "column", boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}>
-
-                  {/* WELCOME STATE */}
-                  {aiMessages.length === 0 && (
-                    <div style={{ padding: "32px 32px 20px", flex: 1 }}>
-                      <div style={{ textAlign: "center", marginBottom: 32 }}>
-                        <div style={{ fontSize: 40, marginBottom: 12 }}>✦</div>
-                        <div style={{ fontSize: 18, fontWeight: 800, color: C.text, fontFamily: "'Barlow Condensed',sans-serif", marginBottom: 6 }}>
-                          Good {new Date().getHours() < 12 ? "morning" : new Date().getHours() < 17 ? "afternoon" : "evening"}, {currentUser?.name?.split(" ")[0] || "Manager"}
-                        </div>
-                        <div style={{ fontSize: 13, color: C.muted, maxWidth: 500, margin: "0 auto" }}>
-                          I have complete access to your fleet — {assets.length} assets, {maint.length} maintenance records, {fuel.length} fuel logs, {incidents.length} incidents and more. Ask me anything about your plant operations.
-                        </div>
-                      </div>
-
-                      <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 12, textAlign: "center" }}>Suggested Questions</div>
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, maxWidth: 700, margin: "0 auto" }}>
-                        {QUICK_PROMPTS.map((q, i) => (
-                          <button key={i} onClick={() => sendMessage(q)} style={{
-                            background: C.surface, border: `1px solid ${C.border}`, borderRadius: 9, padding: "11px 14px",
-                            textAlign: "left", fontSize: 12, color: C.text, cursor: "pointer", fontFamily: "'DM Sans',sans-serif",
-                            transition: "all 0.15s", lineHeight: 1.4,
-                          }}
-                            onMouseEnter={e => { e.currentTarget.style.borderColor = C.red; e.currentTarget.style.background = C.redLight; }}
-                            onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.background = C.surface; }}
-                          >
-                            <span style={{ color: C.red, marginRight: 6, fontWeight: 700 }}>→</span>{q}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* MESSAGES */}
-                  {aiMessages.length > 0 && (
-                    <div style={{ flex: 1, padding: "20px 24px", display: "flex", flexDirection: "column", gap: 16 }}>
-                      {aiMessages.map((msg, i) => (
-                        <div key={i} style={{ display: "flex", gap: 12, flexDirection: msg.role === "user" ? "row-reverse" : "row", alignItems: "flex-start" }}>
-                          {/* AVATAR */}
-                          <div style={{
-                            width: 32, height: 32, borderRadius: "50%", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700,
-                            background: msg.role === "user" ? C.red : C.dark, color: "white",
-                            fontFamily: "'Barlow Condensed',sans-serif"
-                          }}>
-                            {msg.role === "user" ? (currentUser?.name?.charAt(0) || "U") : "✦"}
-                          </div>
-                          {/* BUBBLE */}
-                          <div style={{
-                            maxWidth: "75%", background: msg.role === "user" ? C.red : C.surface,
-                            color: msg.role === "user" ? "white" : C.text,
-                            borderRadius: msg.role === "user" ? "14px 14px 4px 14px" : "14px 14px 14px 4px",
-                            padding: "12px 16px", fontSize: 13, lineHeight: 1.65,
-                            boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
-                            border: msg.role === "user" ? "none" : `1px solid ${C.border}`,
-                            whiteSpace: "pre-wrap",
-                          }}>
-                            {msg.content}
-                          </div>
-                        </div>
-                      ))}
-
-                      {/* LOADING */}
-                      {aiLoading && (
-                        <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
-                          <div style={{ width: 32, height: 32, borderRadius: "50%", background: C.dark, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: "white", flexShrink: 0 }}>✦</div>
-                          <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: "14px 14px 14px 4px", padding: "12px 16px", display: "flex", gap: 6, alignItems: "center" }}>
-                            {[0, 1, 2].map(i => (
-                              <div key={i} style={{ width: 7, height: 7, borderRadius: "50%", background: C.red, animation: `bounce 1.2s ease-in-out ${i * 0.2}s infinite`, opacity: 0.8 }} />
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* QUICK PROMPTS — shown inline when there are messages */}
-                  {aiMessages.length > 0 && !aiLoading && (
-                    <div style={{ padding: "0 24px 16px", display: "flex", gap: 6, flexWrap: "wrap" }}>
-                      {QUICK_PROMPTS.slice(0, 4).map((q, i) => (
-                        <button key={i} onClick={() => sendMessage(q)} style={{
-                          background: C.surface, border: `1px solid ${C.border}`, borderRadius: 20, padding: "5px 12px",
-                          fontSize: 11, color: C.muted, cursor: "pointer", fontFamily: "'DM Sans',sans-serif",
-                          transition: "all 0.15s", fontWeight: 500,
-                        }}
-                          onMouseEnter={e => { e.currentTarget.style.borderColor = C.red; e.currentTarget.style.color = C.red; }}
-                          onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.color = C.muted; }}
-                        >{q.length > 45 ? q.slice(0, 45) + "…" : q}</button>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* INPUT */}
-                  <div style={{ padding: "16px 20px", borderTop: `1px solid ${C.border}`, background: C.surface, borderRadius: "0 0 12px 12px", display: "flex", gap: 10, alignItems: "center", flexShrink: 0 }}>
-                    <input
-                      value={aiInput}
-                      onChange={e => setAiInput(e.target.value)}
-                      onKeyDown={e => e.key === "Enter" && !e.shiftKey && sendMessage()}
-                      placeholder={`Ask anything about your ${assets.length} assets, costs, compliance, incidents...`}
-                      disabled={aiLoading}
-                      style={{
-                        flex: 1, border: `1px solid ${C.border}`, borderRadius: 9, padding: "11px 16px", fontSize: 13,
-                        background: C.white, fontFamily: "'DM Sans',sans-serif", color: C.text, outline: "none",
-                        opacity: aiLoading ? 0.6 : 1,
-                      }}
-                    />
-                    <button onClick={() => sendMessage()} disabled={!aiInput.trim() || aiLoading} style={{
-                      background: aiInput.trim() && !aiLoading ? C.red : C.border, color: "white", border: "none",
-                      borderRadius: 9, width: 44, height: 44, cursor: aiInput.trim() && !aiLoading ? "pointer" : "default",
-                      display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, transition: "all 0.15s",
-                      boxShadow: aiInput.trim() && !aiLoading ? "0 2px 8px rgba(140,20,20,0.3)" : "none", flexShrink: 0,
-                    }}>→</button>
-                  </div>
-                </div>
-
-                <style>{`@keyframes bounce { 0%, 80%, 100% { transform: scale(0.6); opacity: 0.5; } 40% { transform: scale(1); opacity: 1; } }`}</style>
-              </div>
-            );
-          })()}
+          {/* AI PLANT ASSISTANT */}
+          {tab === "AIAssist" && (
+            <AIAssistTab
+              assets={assets} maint={maint} fuel={fuel} incidents={incidents}
+              compliance={compliance} spares={spares} jobCards={jobCards}
+              projects={projects} employees={employees} company={company}
+              currentUser={currentUser} getProjectSpend={getProjectSpend}
+              depreciate={depreciate} allAlerts={allAlerts}
+              expiringSoon={expiringSoon} employeesOnLeave={employeesOnLeave}
+              totalCost={totalCost} totalBook={totalBook}
+              fmt={fmt} today={today} monthLabel={monthLabel}
+              C={C} Btn={Btn} KPI={KPI}
+            />
+          )}
 
           {/* SETTINGS */}
           {tab === "Settings" && (
