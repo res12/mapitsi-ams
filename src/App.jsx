@@ -1,6 +1,10 @@
 import { useState, useEffect } from "react";
-import * as XLSX from "xlsx";
-import { db, auth, collection, doc, getDocs, setDoc, deleteDoc, onSnapshot, signInAnonymously, onAuthStateChanged, signOut } from "./firebase";
+
+import { db, auth } from "./firebase";
+
+import { collection, doc, getDocs, setDoc, deleteDoc, onSnapshot } from "firebase/firestore";
+
+import { signInAnonymously, onAuthStateChanged, signOut } from "firebase/auth";
 
 const C = {
   red: "#8C1414",
@@ -1713,16 +1717,27 @@ Portfolio: Cost R${totalCost.toLocaleString()} | Book Value R${Math.round(totalB
     setAiMessages(prev => [...prev, userMsg]);
     setAiLoading(true);
     try {
-      const history = [...aiMessages, userMsg].filter(m=>m.role==="user"||m.role==="assistant").slice(-10).map(m=>({role:m.role,content:m.content}));
+      const API_KEY = import.meta.env.VITE_ANTHROPIC_API_KEY;
+
+      const history = [...aiMessages, userMsg]
+      .filter(m => m.role === "user" || m.role === "assistant")
+      .slice(-10)
+      .map(m => ({ role: m.role, content: m.content }));
+      
       const response = await fetch("https://api.anthropic.com/v1/messages", {
-        method:"POST",
-        headers:{
-          "Content-Type":"application/json",
-          "x-api-key":import.meta.env.VITE_ANTHROPIC_KEY || "",
-          "anthropic-version":"2023-06-01",
-          "anthropic-dangerous-direct-browser-access":"true"
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": API_KEY,
+          "anthropic-version": "2023-06-01",
+          "anthropic-dangerous-direct-browser-access": "true"
         },
-        body:JSON.stringify({ model:"claude-haiku-4-5-20251001", max_tokens:1000, system:buildFleetContext(), messages:history }),
+        body: JSON.stringify({
+          model: "claude-haiku-4-5-20251001",
+          max_tokens: 1000,
+          system: buildFleetContext(),
+          messages: history
+        }),
       });
       const data = await response.json();
       const replyText = data.content?.find(b=>b.type==="text")?.text || "I couldn't generate a response. Please try again.";
