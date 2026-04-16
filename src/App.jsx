@@ -1718,7 +1718,7 @@ Portfolio: Cost R${totalCost.toLocaleString()} | Book Value R${Math.round(totalB
         method:"POST",
         headers:{
           "Content-Type":"application/json",
-          "x-api-key":"YOUR_ANTHROPIC_API_KEY_HERE",
+          "x-api-key":import.meta.env.VITE_ANTHROPIC_KEY || "",
           "anthropic-version":"2023-06-01",
           "anthropic-dangerous-direct-browser-access":"true"
         },
@@ -2305,10 +2305,6 @@ export default function App() {
   };
   const [transF, setTransF] = useState(dTrans);
   const [jobCards, setJobCards] = useState([]);
-  const [aiMessages, setAiMessages] = useState([]);
-  const [aiInput, setAiInput] = useState("");
-  const [aiLoading, setAiLoading] = useState(false);
-  const [aiSessionId] = useState(() => Date.now().toString());
   const dCon = {
     name: "",
     tradingName: "",
