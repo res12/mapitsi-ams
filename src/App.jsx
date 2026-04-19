@@ -5080,466 +5080,361 @@ export default function App() {
           {/* DASHBOARD */}
           {tab === "Dashboard" && (
             <div>
-              <PageTitle
-                title="OPERATIONAL DASHBOARD"
-                sub="Real-time overview · Mapitsi Civil Works Plant Division"
-              />
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(auto-fit,minmax(190px,1fr))",
-                  gap: 14,
-                  marginBottom: 24,
-                }}
-              >
-                <KPI
-                  label="Total Assets"
-                  value={assets.length}
-                  sub={`${
-                    assets.filter((a) => a.status === "Active").length
-                  } active`}
-                  color={C.info}
-                  icon="▤"
-                />
-                <KPI
-                  label="Original Cost"
-                  value={fmt(totalCost)}
-                  sub="Total acquisition value"
-                  color={C.muted}
-                  icon="₽"
-                />
-                <KPI
-                  label="Net Book Value"
-                  value={fmt(totalBook)}
-                  sub="After depreciation"
-                  color={C.success}
-                  icon="≋"
-                />
-                <KPI
-                  label="Total Write-Down"
-                  value={fmt(totalCost - totalBook)}
-                  sub="Accumulated depreciation"
-                  color={C.warn}
-                  icon="↘"
-                />
-                <KPI
-                  label="Maintenance Alerts"
-                  value={overdue}
-                  sub={
-                    overdue > 0
-                      ? "Immediate attention needed"
-                      : "All up to date"
-                  }
-                  color={overdue > 0 ? C.red : C.success}
-                  icon="⚑"
-                />
+              {/* ── HEADER ROW ── */}
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20, flexWrap:"wrap", gap:10 }}>
+                <div>
+                  <div style={{ fontSize:22, fontWeight:800, color:C.text, letterSpacing:-0.5, fontFamily:"'Barlow Condensed',sans-serif", lineHeight:1.1 }}>
+                    OPERATIONAL DASHBOARD
+                    <span style={{ fontSize:13, fontWeight:400, color:C.muted, marginLeft:14, fontFamily:"'DM Sans',sans-serif", letterSpacing:0 }}>
+                      Real-time overview · {company.name||"Mapitsi Civil Works"} · {new Date().toLocaleDateString("en-ZA",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}
+                    </span>
+                  </div>
+                </div>
+                <div style={{ display:"flex", gap:8 }}>
+                  {allAlerts.filter(a=>a.severity==="critical").length>0&&(
+                    <button onClick={()=>setTab("Alerts")} style={{ background:C.red, color:"white", borderRadius:7, padding:"7px 14px", fontSize:12, fontWeight:700, border:"none", cursor:"pointer", fontFamily:"'DM Sans',sans-serif" }}>
+                      ⚑ {allAlerts.filter(a=>a.severity==="critical").length} Critical Alert{allAlerts.filter(a=>a.severity==="critical").length>1?"s":""}
+                    </button>
+                  )}
+                  <Btn variant="outline" size="sm" onClick={()=>setTab("FleetMap")}>◉ Fleet Map</Btn>
+                  <Btn variant="ghost" size="sm" onClick={()=>setTab("Alerts")}>🔔 All Alerts</Btn>
+                </div>
               </div>
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "3fr 2fr",
-                  gap: 18,
-                  marginBottom: 18,
-                }}
-              >
-                <Card
-                  title="Recent Assets"
-                  sub={`${assets.length} asset${
-                    assets.length !== 1 ? "s" : ""
-                  } on register`}
-                  action={
-                    <Btn
-                      onClick={() => setTab("Assets")}
-                      variant="ghost"
-                      size="sm"
-                    >
-                      View All →
-                    </Btn>
-                  }
-                >
-                  {assets.length === 0 ? (
-                    <div
-                      style={{
-                        padding: "32px 20px",
-                        textAlign: "center",
-                        color: C.muted,
-                        fontSize: 13,
-                      }}
-                    >
-                      No assets registered yet.
+
+              {/* ── KPI ROW ── */}
+              <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(170px,1fr))", gap:12, marginBottom:20 }}>
+                {[
+                  { label:"Total Assets",     value:assets.length,                                                   sub:`${assets.filter(a=>a.status==="Active").length} active`,       color:C.info,    icon:"▤" },
+                  { label:"Original Cost",    value:fmt(totalCost),                                                  sub:"Total acquisition value",                                       color:C.muted,   icon:"₽" },
+                  { label:"Net Book Value",   value:fmt(totalBook),                                                  sub:"After depreciation",                                            color:C.success, icon:"≋" },
+                  { label:"Total Write-Down", value:fmt(totalCost-totalBook),                                        sub:`${totalCost>0?(((totalCost-totalBook)/totalCost)*100).toFixed(1):0}% depreciated`, color:C.warn, icon:"↘" },
+                  { label:"Operating Cost",   value:fmt(rMC+rFC),                                                    sub:`${monthLabel(month)} · maint+fuel`,                             color:"#7c3aed", icon:"₽" },
+                  { label:"Open Alerts",      value:allAlerts.filter(a=>a.severity==="critical"||a.severity==="warning").length, sub:`${allAlerts.filter(a=>a.severity==="critical").length} critical`, color:allAlerts.filter(a=>a.severity==="critical").length>0?C.red:C.success, icon:"⚑" },
+                ].map(k=>(
+                  <KPI key={k.label} label={k.label} value={k.value} sub={k.sub} color={k.color} icon={k.icon}/>
+                ))}
+              </div>
+
+              {/* ── CHARTS ROW 1: Trend + Donut ── */}
+              <div style={{ display:"grid", gridTemplateColumns:"2fr 1fr", gap:16, marginBottom:16 }}>
+
+                {/* COMBINED 6-MONTH COST TREND */}
+                <div style={{ background:C.white, borderRadius:10, border:`1px solid ${C.border}`, overflow:"hidden", boxShadow:"0 1px 4px rgba(0,0,0,0.04)" }}>
+                  <div style={{ padding:"14px 20px 10px", borderBottom:`1px solid ${C.border}`, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                    <div>
+                      <div style={{ fontSize:13, fontWeight:700, color:C.text }}>Operating Cost Trend</div>
+                      <div style={{ fontSize:11, color:C.muted }}>Maintenance + Fuel — last 6 months</div>
                     </div>
-                  ) : (
-                    <Tbl
-                      cols={[
-                        "Asset",
-                        "Category",
-                        "Status",
-                        "Book Value",
-                        "Location",
-                      ]}
-                    >
-                      {[...assets]
-                        .reverse()
-                        .slice(0, 6)
-                        .map((a, i) => {
-                          const d = depreciate(a);
-                          return (
-                            <TR
-                              key={a.id}
-                              stripe={i % 2 !== 0}
-                              cells={[
-                                <span
-                                  style={{ fontWeight: 700, color: C.text }}
-                                >
-                                  {a.name}
-                                </span>,
-                                <span style={{ color: C.muted, fontSize: 12 }}>
-                                  {a.category}
-                                </span>,
-                                <Pill
-                                  text={a.status}
-                                  color={
-                                    a.status === "Active"
-                                      ? "green"
-                                      : a.status === "Under Maintenance"
-                                      ? "yellow"
-                                      : "gray"
-                                  }
-                                />,
-                                <span
-                                  style={{
-                                    fontWeight: 700,
-                                    fontFamily: "'Barlow Condensed',sans-serif",
-                                    fontSize: 15,
-                                  }}
-                                >
-                                  {fmt(d.bookValue)}
-                                </span>,
-                                <span style={{ color: C.muted, fontSize: 12 }}>
-                                  {a.location}
-                                </span>,
-                              ]}
-                            />
-                          );
-                        })}
+                    <div style={{ display:"flex", gap:12 }}>
+                      <div style={{ display:"flex", alignItems:"center", gap:4 }}><div style={{ width:10,height:10,borderRadius:2,background:"#7c3aed" }}/><span style={{ fontSize:10,color:C.muted }}>Maintenance</span></div>
+                      <div style={{ display:"flex", alignItems:"center", gap:4 }}><div style={{ width:10,height:10,borderRadius:2,background:C.warn }}/><span style={{ fontSize:10,color:C.muted }}>Fuel</span></div>
+                    </div>
+                  </div>
+                  <div style={{ padding:"16px 20px 12px" }}>
+                    {(()=>{
+                      const maxVal = Math.max(...last6.map(m=>{
+                        const mc=maint.filter(x=>x.date?.startsWith(m)).reduce((s,x)=>s+Number(x.cost||0),0);
+                        const fc=fuel.filter(x=>x.date?.startsWith(m)).reduce((s,x)=>s+Number(x.cost||0),0);
+                        return mc+fc;
+                      }),1);
+                      const chartH = 130;
+                      return (
+                        <div>
+                          <div style={{ display:"flex", alignItems:"flex-end", gap:6, height:chartH, paddingBottom:0 }}>
+                            {last6.map(m=>{
+                              const mc=maint.filter(x=>x.date?.startsWith(m)).reduce((s,x)=>s+Number(x.cost||0),0);
+                              const fc=fuel.filter(x=>x.date?.startsWith(m)).reduce((s,x)=>s+Number(x.cost||0),0);
+                              const total=mc+fc;
+                              const mH=Math.max(2,Math.round((mc/maxVal)*(chartH-24)));
+                              const fH=Math.max(2,Math.round((fc/maxVal)*(chartH-24)));
+                              const isCurrent=m===month;
+                              return (
+                                <div key={m} style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", gap:2 }}>
+                                  <div style={{ fontSize:9, color:isCurrent?C.text:C.muted, fontWeight:isCurrent?700:400, marginBottom:2 }}>
+                                    {total>0?(total>=1000?`R${(total/1000).toFixed(0)}k`:`R${Math.round(total)}`):""}
+                                  </div>
+                                  <div style={{ width:"100%", display:"flex", flexDirection:"column", justifyContent:"flex-end", height:chartH-24 }}>
+                                    {fc>0&&<div style={{ width:"100%", height:fH, background:isCurrent?C.warn:"#FCD34D", borderRadius:"2px 2px 0 0", opacity:isCurrent?1:0.7 }}/>}
+                                    {mc>0&&<div style={{ width:"100%", height:mH, background:isCurrent?"#7c3aed":"#A78BFA", borderRadius:fc>0?"0":"2px 2px 0 0", opacity:isCurrent?1:0.7 }}/>}
+                                    {total===0&&<div style={{ width:"100%", height:3, background:C.border, borderRadius:2 }}/>}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                          <div style={{ display:"flex", gap:6, marginTop:6 }}>
+                            {last6.map(m=>(
+                              <div key={m} style={{ flex:1, fontSize:9, color:m===month?C.red:C.muted, textAlign:"center", fontWeight:m===month?700:400 }}>
+                                {shortMonth(m)}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </div>
+
+                {/* FLEET STATUS DONUT */}
+                <div style={{ background:C.white, borderRadius:10, border:`1px solid ${C.border}`, overflow:"hidden", boxShadow:"0 1px 4px rgba(0,0,0,0.04)" }}>
+                  <div style={{ padding:"14px 20px 10px", borderBottom:`1px solid ${C.border}` }}>
+                    <div style={{ fontSize:13, fontWeight:700, color:C.text }}>Fleet Status</div>
+                    <div style={{ fontSize:11, color:C.muted }}>Asset distribution</div>
+                  </div>
+                  <div style={{ padding:"16px 20px" }}>
+                    {(()=>{
+                      const groups=[
+                        { label:"Active",         count:assets.filter(a=>a.status==="Active").length,           color:C.success },
+                        { label:"Maintenance",    count:assets.filter(a=>a.status==="Under Maintenance").length, color:C.warn },
+                        { label:"Inactive",       count:assets.filter(a=>a.status==="Inactive").length,          color:C.muted },
+                        { label:"Disposed",       count:assets.filter(a=>a.status==="Disposed").length,          color:"#D1D5DB" },
+                      ].filter(g=>g.count>0);
+                      const total=groups.reduce((s,g)=>s+g.count,0)||1;
+                      // SVG donut
+                      let cumPct=0;
+                      const r=42, cx=60, cy=54, stroke=14;
+                      const circumference=2*Math.PI*r;
+                      const slices=groups.map(g=>{
+                        const pct=g.count/total;
+                        const offset=circumference*(1-cumPct);
+                        const dash=circumference*pct;
+                        cumPct+=pct;
+                        return {...g,pct,offset,dash};
+                      });
+                      return (
+                        <div style={{ display:"flex", alignItems:"center", gap:16 }}>
+                          <svg width={120} height={108} style={{ flexShrink:0 }}>
+                            <circle cx={cx} cy={cy} r={r} fill="none" stroke={C.border} strokeWidth={stroke}/>
+                            {slices.map((s,i)=>(
+                              <circle key={i} cx={cx} cy={cy} r={r} fill="none"
+                                stroke={s.color} strokeWidth={stroke}
+                                strokeDasharray={`${s.dash} ${circumference-s.dash}`}
+                                strokeDashoffset={s.offset}
+                                style={{ transition:"all 0.5s", transform:"rotate(-90deg)", transformOrigin:`${cx}px ${cy}px` }}
+                              />
+                            ))}
+                            <text x={cx} y={cy-6} textAnchor="middle" style={{ fontSize:18, fontWeight:800, fill:C.text, fontFamily:"'Barlow Condensed',sans-serif" }}>{total}</text>
+                            <text x={cx} y={cy+10} textAnchor="middle" style={{ fontSize:9, fill:C.muted }}>ASSETS</text>
+                          </svg>
+                          <div style={{ flex:1, display:"flex", flexDirection:"column", gap:7 }}>
+                            {slices.map(s=>(
+                              <div key={s.label} style={{ display:"flex", alignItems:"center", gap:6 }}>
+                                <div style={{ width:8, height:8, borderRadius:"50%", background:s.color, flexShrink:0 }}/>
+                                <span style={{ fontSize:11, color:C.muted, flex:1 }}>{s.label}</span>
+                                <span style={{ fontSize:12, fontWeight:700, color:C.text }}>{s.count}</span>
+                                <span style={{ fontSize:10, color:C.mutedLt }}>{(s.pct*100).toFixed(0)}%</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </div>
+              </div>
+
+              {/* ── CHARTS ROW 2: Fuel trend + Depreciation health + Labour ── */}
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:16, marginBottom:16 }}>
+
+                {/* FUEL L/COST BY MONTH */}
+                <div style={{ background:C.white, borderRadius:10, border:`1px solid ${C.border}`, boxShadow:"0 1px 4px rgba(0,0,0,0.04)" }}>
+                  <div style={{ padding:"14px 18px 10px", borderBottom:`1px solid ${C.border}` }}>
+                    <div style={{ fontSize:13, fontWeight:700, color:C.text }}>Fuel Consumption</div>
+                    <div style={{ fontSize:11, color:C.muted }}>Litres — last 6 months</div>
+                  </div>
+                  <div style={{ padding:"14px 18px 12px" }}>
+                    {(()=>{
+                      const data=last6.map(m=>({ label:shortMonth(m), litres:fuel.filter(f=>f.date?.startsWith(m)).reduce((s,f)=>s+Number(f.litres||0),0), cost:fuel.filter(f=>f.date?.startsWith(m)).reduce((s,f)=>s+Number(f.cost||0),0), isCurrentMonth:m===month }));
+                      const maxL=Math.max(...data.map(d=>d.litres),1);
+                      const h=80;
+                      return (
+                        <div>
+                          <div style={{ display:"flex", alignItems:"flex-end", gap:5, height:h }}>
+                            {data.map((d,i)=>{
+                              const barH=Math.max(3,Math.round((d.litres/maxL)*(h-18)));
+                              return (
+                                <div key={i} style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center" }}>
+                                  <div style={{ fontSize:8, color:d.isCurrentMonth?C.text:C.muted, marginBottom:2 }}>{d.litres>0?`${Math.round(d.litres)}L`:""}</div>
+                                  <div style={{ width:"100%", height:h-18, display:"flex", alignItems:"flex-end" }}>
+                                    <div style={{ width:"100%", height:barH, background:d.isCurrentMonth?C.warn:"#FCD34D", borderRadius:"3px 3px 0 0", opacity:d.isCurrentMonth?1:0.65 }}/>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                          <div style={{ display:"flex", gap:5, marginTop:5 }}>
+                            {data.map((d,i)=><div key={i} style={{ flex:1, fontSize:8.5, color:d.isCurrentMonth?C.red:C.muted, textAlign:"center", fontWeight:d.isCurrentMonth?700:400 }}>{d.label}</div>)}
+                          </div>
+                          <div style={{ marginTop:10, paddingTop:10, borderTop:`1px solid ${C.border}`, display:"flex", justifyContent:"space-between" }}>
+                            <div><div style={{ fontSize:9, color:C.muted, textTransform:"uppercase", letterSpacing:0.5 }}>This Month</div><div style={{ fontSize:14, fontWeight:800, color:C.warn, fontFamily:"'Barlow Condensed',sans-serif" }}>{rF.reduce((s,f)=>s+Number(f.litres||0),0).toFixed(0)} L</div></div>
+                            <div style={{ textAlign:"right" }}><div style={{ fontSize:9, color:C.muted, textTransform:"uppercase", letterSpacing:0.5 }}>Cost</div><div style={{ fontSize:14, fontWeight:800, color:C.warn, fontFamily:"'Barlow Condensed',sans-serif" }}>{fmt(rFC)}</div></div>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </div>
+
+                {/* DEPRECIATION HEALTH BARS */}
+                <div style={{ background:C.white, borderRadius:10, border:`1px solid ${C.border}`, boxShadow:"0 1px 4px rgba(0,0,0,0.04)" }}>
+                  <div style={{ padding:"14px 18px 10px", borderBottom:`1px solid ${C.border}` }}>
+                    <div style={{ fontSize:13, fontWeight:700, color:C.text }}>Depreciation Health</div>
+                    <div style={{ fontSize:11, color:C.muted }}>Per asset — % written off</div>
+                  </div>
+                  <div style={{ padding:"12px 18px" }}>
+                    {assets.length===0?(
+                      <div style={{ fontSize:12, color:C.mutedLt, textAlign:"center", padding:"20px 0" }}>No assets</div>
+                    ):(
+                      [...assets].slice(0,6).map((a,i)=>{
+                        const d=depreciate(a);
+                        const pct=Number(a.purchaseCost)>0?(d.accumulated/Number(a.purchaseCost))*100:0;
+                        const barColor=pct>=100?C.red:pct>75?"#F97316":pct>50?C.warn:C.success;
+                        return (
+                          <div key={a.id} style={{ marginBottom:i<assets.slice(0,6).length-1?9:0 }}>
+                            <div style={{ display:"flex", justifyContent:"space-between", marginBottom:3 }}>
+                              <span style={{ fontSize:10, color:C.text, fontWeight:600, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", maxWidth:120 }}>{a.name}</span>
+                              <span style={{ fontSize:10, fontWeight:700, color:barColor, flexShrink:0, marginLeft:4 }}>{pct.toFixed(0)}%</span>
+                            </div>
+                            <div style={{ height:6, background:C.border, borderRadius:3 }}>
+                              <div style={{ height:"100%", width:`${Math.min(100,pct)}%`, background:barColor, borderRadius:3, transition:"width 0.5s" }}/>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                    {assets.length>6&&<div style={{ fontSize:10, color:C.mutedLt, marginTop:8, textAlign:"center" }}>+{assets.length-6} more · <span onClick={()=>setTab("Depreciation")} style={{ color:C.info, cursor:"pointer" }}>View all</span></div>}
+                  </div>
+                </div>
+
+                {/* LABOUR HOURS TREND */}
+                <div style={{ background:C.white, borderRadius:10, border:`1px solid ${C.border}`, boxShadow:"0 1px 4px rgba(0,0,0,0.04)" }}>
+                  <div style={{ padding:"14px 18px 10px", borderBottom:`1px solid ${C.border}` }}>
+                    <div style={{ fontSize:13, fontWeight:700, color:C.text }}>Labour Hours</div>
+                    <div style={{ fontSize:11, color:C.muted }}>Hours worked — last 6 months</div>
+                  </div>
+                  <div style={{ padding:"14px 18px 12px" }}>
+                    {(()=>{
+                      const data=last6.map(m=>({ label:shortMonth(m), hours:ts.filter(t=>t.date?.startsWith(m)).reduce((s,t)=>s+Number(t.hours||0),0), isCurrent:m===month }));
+                      const maxH2=Math.max(...data.map(d=>d.hours),1);
+                      const h=80;
+                      return (
+                        <div>
+                          <div style={{ display:"flex", alignItems:"flex-end", gap:5, height:h }}>
+                            {data.map((d,i)=>{
+                              const barH=Math.max(3,Math.round((d.hours/maxH2)*(h-18)));
+                              return (
+                                <div key={i} style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center" }}>
+                                  <div style={{ fontSize:8, color:d.isCurrent?C.text:C.muted, marginBottom:2 }}>{d.hours>0?`${d.hours.toFixed(0)}h`:""}</div>
+                                  <div style={{ width:"100%", height:h-18, display:"flex", alignItems:"flex-end" }}>
+                                    <div style={{ width:"100%", height:barH, background:d.isCurrent?C.red:"#FCA5A5", borderRadius:"3px 3px 0 0", opacity:d.isCurrent?1:0.65 }}/>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                          <div style={{ display:"flex", gap:5, marginTop:5 }}>
+                            {data.map((d,i)=><div key={i} style={{ flex:1, fontSize:8.5, color:d.isCurrent?C.red:C.muted, textAlign:"center", fontWeight:d.isCurrent?700:400 }}>{d.label}</div>)}
+                          </div>
+                          <div style={{ marginTop:10, paddingTop:10, borderTop:`1px solid ${C.border}`, display:"flex", justifyContent:"space-between" }}>
+                            <div><div style={{ fontSize:9, color:C.muted, textTransform:"uppercase", letterSpacing:0.5 }}>This Month</div><div style={{ fontSize:14, fontWeight:800, color:C.red, fontFamily:"'Barlow Condensed',sans-serif" }}>{rH.toFixed(1)} hrs</div></div>
+                            <div style={{ textAlign:"right" }}><div style={{ fontSize:9, color:C.muted, textTransform:"uppercase", letterSpacing:0.5 }}>Employees</div><div style={{ fontSize:14, fontWeight:800, color:C.red, fontFamily:"'Barlow Condensed',sans-serif" }}>{new Set(ts.map(t=>t.employeeName)).size}</div></div>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </div>
+              </div>
+
+              {/* ── ROW 3: Recent assets + Maintenance alerts + Alerts ── */}
+              <div style={{ display:"grid", gridTemplateColumns:"2fr 1fr", gap:16, marginBottom:16 }}>
+                <Card title="Recent Assets" sub={`${assets.length} asset${assets.length!==1?"s":""} on register`}
+                  action={<Btn onClick={()=>setTab("Assets")} variant="ghost" size="sm">View All →</Btn>}>
+                  {assets.length===0?(
+                    <div style={{ padding:"28px 20px", textAlign:"center", color:C.muted, fontSize:13 }}>No assets registered yet.</div>
+                  ):(
+                    <Tbl cols={["Asset","Category","Status","Book Value","Location"]}>
+                      {[...assets].reverse().slice(0,5).map((a,i)=>{
+                        const d=depreciate(a);
+                        return (
+                          <TR key={a.id} stripe={i%2!==0} cells={[
+                            <span style={{ fontWeight:700,color:C.text }}>{a.name}</span>,
+                            <span style={{ color:C.muted,fontSize:12 }}>{a.category}</span>,
+                            <Pill text={a.status} color={a.status==="Active"?"green":a.status==="Under Maintenance"?"yellow":"gray"}/>,
+                            <span style={{ fontWeight:700,fontFamily:"'Barlow Condensed',sans-serif",fontSize:15 }}>{fmt(d.bookValue)}</span>,
+                            <span style={{ color:C.muted,fontSize:12 }}>{a.location}</span>,
+                          ]}/>
+                        );
+                      })}
                     </Tbl>
                   )}
                 </Card>
-                <Card
-                  title="Maintenance Alerts"
-                  sub="Scheduled & overdue service"
-                >
-                  <div style={{ padding: "8px 16px" }}>
-                    {maint.filter((m) => m.nextDueDate).length === 0 ? (
-                      <div
-                        style={{
-                          padding: "24px 0",
-                          textAlign: "center",
-                          color: C.muted,
-                          fontSize: 12,
-                        }}
-                      >
-                        No scheduled maintenance.
-                      </div>
-                    ) : (
-                      [...maint]
-                        .filter((m) => m.nextDueDate)
-                        .sort((a, b) =>
-                          a.nextDueDate > b.nextDueDate ? 1 : -1
-                        )
-                        .slice(0, 7)
-                        .map((m) => {
-                          const asset = assets.find((a) => a.id === m.assetId);
-                          const od = m.nextDueDate < today();
-                          const days = Math.round(
-                            (new Date(m.nextDueDate) - new Date()) /
-                              (1000 * 60 * 60 * 24)
-                          );
-                          return (
-                            <div
-                              key={m.id}
-                              style={{
-                                display: "flex",
-                                justifyContent: "space-between",
-                                alignItems: "center",
-                                padding: "10px 0",
-                                borderBottom: `1px solid ${C.surface}`,
-                              }}
-                            >
-                              <div>
-                                <div
-                                  style={{
-                                    fontWeight: 700,
-                                    fontSize: 12,
-                                    color: C.text,
-                                  }}
-                                >
-                                  {asset?.name || "—"}
-                                </div>
-                                <div style={{ fontSize: 11, color: C.muted }}>
-                                  {m.type}
-                                </div>
-                              </div>
-                              <Pill
-                                text={
-                                  od
-                                    ? `Overdue ${Math.abs(days)}d`
-                                    : days === 0
-                                    ? "Today"
-                                    : `${days}d`
-                                }
-                                color={
-                                  od ? "red" : days <= 5 ? "yellow" : "green"
-                                }
-                              />
+
+                <Card title="Maintenance Alerts" sub="Scheduled & overdue">
+                  <div style={{ padding:"8px 16px" }}>
+                    {maint.filter(m=>m.nextDueDate).length===0?(
+                      <div style={{ padding:"24px 0", textAlign:"center", color:C.muted, fontSize:12 }}>No scheduled maintenance.</div>
+                    ):(
+                      [...maint].filter(m=>m.nextDueDate).sort((a,b)=>a.nextDueDate>b.nextDueDate?1:-1).slice(0,6).map(m=>{
+                        const asset=assets.find(a=>a.id===m.assetId);
+                        const od=m.nextDueDate<today();
+                        const days=Math.round((new Date(m.nextDueDate)-new Date())/(1000*60*60*24));
+                        return (
+                          <div key={m.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"8px 0", borderBottom:`1px solid ${C.surface}` }}>
+                            <div>
+                              <div style={{ fontWeight:700, fontSize:12, color:C.text }}>{asset?.name||"—"}</div>
+                              <div style={{ fontSize:11, color:C.muted }}>{m.type}</div>
                             </div>
-                          );
-                        })
+                            <Pill text={od?`Overdue ${Math.abs(days)}d`:days===0?"Today":`${days}d`} color={od?"red":days<=5?"yellow":"green"}/>
+                          </div>
+                        );
+                      })
                     )}
                   </div>
                 </Card>
               </div>
-              {allAlerts.filter(
-                (a) => a.severity === "critical" || a.severity === "warning"
-              ).length > 0 && (
-                <div
-                  style={{
-                    background: C.redLight,
-                    border: `1px solid ${C.redBorder}`,
-                    borderRadius: 10,
-                    padding: "14px 18px",
-                    marginBottom: 16,
-                  }}
-                >
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                      marginBottom: 10,
-                    }}
-                  >
-                    <div
-                      style={{
-                        fontSize: 10,
-                        fontWeight: 700,
-                        color: C.red,
-                        textTransform: "uppercase",
-                        letterSpacing: 1,
-                      }}
-                    >
-                      ⚠{" "}
-                      {
-                        allAlerts.filter((a) => a.severity === "critical")
-                          .length
-                      }{" "}
-                      Critical ·{" "}
-                      {allAlerts.filter((a) => a.severity === "warning").length}{" "}
-                      Warnings
+
+              {/* ── ALERTS BANNER ── */}
+              {allAlerts.filter(a=>a.severity==="critical"||a.severity==="warning").length>0&&(
+                <div style={{ background:C.redLight, border:`1px solid ${C.redBorder}`, borderRadius:10, padding:"14px 18px", marginBottom:16 }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+                    <div style={{ fontSize:10, fontWeight:700, color:C.red, textTransform:"uppercase", letterSpacing:1 }}>
+                      ⚠ {allAlerts.filter(a=>a.severity==="critical").length} Critical · {allAlerts.filter(a=>a.severity==="warning").length} Warnings
                     </div>
-                    <button
-                      onClick={() => setTab("Alerts")}
-                      style={{
-                        background: "none",
-                        border: `1px solid ${C.red}`,
-                        borderRadius: 5,
-                        padding: "3px 10px",
-                        fontSize: 11,
-                        color: C.red,
-                        cursor: "pointer",
-                        fontFamily: "'DM Sans',sans-serif",
-                        fontWeight: 600,
-                      }}
-                    >
-                      View All →
-                    </button>
+                    <button onClick={()=>setTab("Alerts")} style={{ background:"none", border:`1px solid ${C.red}`, borderRadius:5, padding:"3px 10px", fontSize:11, color:C.red, cursor:"pointer", fontFamily:"'DM Sans',sans-serif", fontWeight:600 }}>View All →</button>
                   </div>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                    {[
-                      ...new Map(
-                        allAlerts
-                          .filter(
-                            (a) =>
-                              a.severity === "critical" ||
-                              a.severity === "warning"
-                          )
-                          .map((a) => [a.tab + a.module, a])
-                      ).values(),
-                    ]
-                      .slice(0, 8)
-                      .map((a) => (
-                        <AlertChip
-                          key={a.id}
-                          label={a.title}
-                          onClick={() => setTab(a.tab)}
-                        />
-                      ))}
+                  <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
+                    {[...new Map(allAlerts.filter(a=>a.severity==="critical"||a.severity==="warning").map(a=>[a.tab+a.module,a])).values()].slice(0,8).map(a=>(
+                      <AlertChip key={a.id} label={a.title} onClick={()=>setTab(a.tab)}/>
+                    ))}
                   </div>
                 </div>
               )}
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(auto-fit,minmax(155px,1fr))",
-                  gap: 10,
-                }}
-              >
+
+              {/* ── QUICK STATS MINI TILES ── */}
+              <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))", gap:10 }}>
                 {[
-                  {
-                    l: "Fuel Records",
-                    v: fuel.length,
-                    s: `${fuel
-                      .reduce((s, f) => s + Number(f.litres || 0), 0)
-                      .toFixed(0)} L total`,
-                    c: C.warn,
-                    ico: "⛽",
-                    t: "Fuel",
-                  },
-                  {
-                    l: "Labour Hours",
-                    v: `${ts
-                      .reduce((s, t) => s + Number(t.hours || 0), 0)
-                      .toFixed(0)} hrs`,
-                    s: `${
-                      new Set(ts.map((t) => t.employeeName)).size
-                    } employees`,
-                    c: C.red,
-                    ico: "◷",
-                    t: "Timesheets",
-                  },
-                  {
-                    l: "Maintenance",
-                    v: maint.length,
-                    s: fmt(maint.reduce((s, m) => s + Number(m.cost || 0), 0)),
-                    c: "#7c3aed",
-                    ico: "⊙",
-                    t: "Maintenance",
-                  },
-                  {
-                    l: "Active Projects",
-                    v: projects.filter((p) => p.status === "Active").length,
-                    s: `of ${projects.length} total`,
-                    c: C.info,
-                    ico: "⊕",
-                    t: "Projects",
-                  },
-                  {
-                    l: "Employees",
-                    v: employees.filter((e) => e.status === "Active").length,
-                    s: "active on register",
-                    c: C.success,
-                    ico: "⊞",
-                    t: "Employees",
-                  },
-                  {
-                    l: "Suppliers",
-                    v: suppliers.length,
-                    s: "registered vendors",
-                    c: C.muted,
-                    ico: "⊡",
-                    t: "Suppliers",
-                  },
-                  {
-                    l: "Active Hires",
-                    v: hires.filter((h) => h.status === "Active Hire").length,
-                    s:
-                      fmt(
-                        hires
-                          .filter((h) => h.status === "Active Hire")
-                          .reduce((s, h) => s + Number(h.dailyRate || 0), 0)
-                      ) + "/day",
-                    c: C.warn,
-                    ico: "⊠",
-                    t: "Hire",
-                  },
-                  {
-                    l: "Assignments",
-                    v: assignments.filter((a) => !a.endDate).length,
-                    s: "currently active",
-                    c: C.muted,
-                    ico: "◴",
-                    t: "Assignments",
-                  },
-                  {
-                    l: "Assets Disposed",
-                    v: disposals.length,
-                    s:
-                      fmt(
-                        disposals.reduce(
-                          (s, d) => s + Number(d.disposalValue || 0),
-                          0
-                        )
-                      ) + " recovered",
-                    c: C.muted,
-                    ico: "⊖",
-                    t: "Disposals",
-                  },
-                ].map((s) => (
-                  <div
-                    key={s.l}
-                    onClick={() => setTab(s.t)}
-                    style={{
-                      background: C.white,
-                      borderRadius: 8,
-                      padding: "12px 14px",
-                      border: `1px solid ${C.border}`,
-                      cursor: "pointer",
-                      position: "relative",
-                      overflow: "hidden",
-                      transition: "box-shadow 0.15s",
-                    }}
-                  >
-                    <div
-                      style={{
-                        position: "absolute",
-                        top: 0,
-                        left: 0,
-                        width: 3,
-                        height: "100%",
-                        background: s.c,
-                      }}
-                    />
-                    <div
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "flex-start",
-                      }}
-                    >
+                  { l:"Fuel Records",    v:fuel.length,                                                           s:`${fuel.reduce((s,f)=>s+Number(f.litres||0),0).toFixed(0)} L total`,  c:C.warn,    ico:"⛽", t:"Fuel" },
+                  { l:"Maintenance",     v:maint.length,                                                          s:fmt(maint.reduce((s,m)=>s+Number(m.cost||0),0)),                        c:"#7c3aed", ico:"⊙", t:"Maintenance" },
+                  { l:"Active Projects", v:projects.filter(p=>p.status==="Active").length,                        s:`of ${projects.length} total`,                                          c:C.info,    ico:"⊕", t:"Projects" },
+                  { l:"Employees",       v:employees.filter(e=>e.status==="Active").length,                       s:"active on register",                                                   c:C.success, ico:"⊞", t:"Employees" },
+                  { l:"Job Cards Open",  v:jobCards.filter(j=>!["Complete","Cancelled","Invoiced"].includes(j.status)).length, s:`${jobCards.filter(j=>j.priority==="Critical"&&!["Complete","Cancelled"].includes(j.status)).length} critical`, c:jobCards.filter(j=>j.priority==="Critical"&&!["Complete","Cancelled"].includes(j.status)).length>0?C.red:C.muted, ico:"🔧", t:"JobCards" },
+                  { l:"Parts Out",       v:spares.filter(s=>Number(s.quantity||0)===0).length,                    s:`${spares.filter(s=>Number(s.quantity||0)<=Number(s.minStockLevel||0)&&Number(s.minStockLevel||0)>0).length} low stock`, c:spares.filter(s=>Number(s.quantity||0)===0).length>0?C.red:C.success, ico:"⊟", t:"Spares" },
+                  { l:"Open Incidents",  v:incidents.filter(i=>i.resolved==="No").length,                         s:"unresolved",                                                           c:incidents.filter(i=>i.resolved==="No").length>0?C.red:C.success, ico:"⚠", t:"Incidents" },
+                  { l:"Compliance",      v:compliance.filter(c=>c.expiryDate&&c.expiryDate<today()).length,        s:"expired documents",                                                    c:compliance.filter(c=>c.expiryDate&&c.expiryDate<today()).length>0?C.red:C.success, ico:"⊛", t:"Compliance" },
+                  { l:"Purchase Orders", v:purchaseOrders.filter(p=>!["Fully Received","Cancelled"].includes(p.status)).length, s:"open / pending", c:C.muted, ico:"📦", t:"PurchaseOrders" },
+                ].map(s=>(
+                  <div key={s.l} onClick={()=>setTab(s.t)} style={{ background:C.white, borderRadius:8, padding:"11px 14px", border:`1px solid ${C.border}`, cursor:"pointer", position:"relative", overflow:"hidden", transition:"box-shadow 0.15s" }}
+                    onMouseEnter={e=>e.currentTarget.style.boxShadow="0 4px 12px rgba(0,0,0,0.1)"}
+                    onMouseLeave={e=>e.currentTarget.style.boxShadow=""}>
+                    <div style={{ position:"absolute", top:0, left:0, width:3, height:"100%", background:s.c }}/>
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
                       <div>
-                        <div
-                          style={{
-                            fontSize: 9.5,
-                            color: C.muted,
-                            fontWeight: 600,
-                            textTransform: "uppercase",
-                            letterSpacing: 0.6,
-                            marginBottom: 3,
-                          }}
-                        >
-                          {s.l}
-                        </div>
-                        <div
-                          style={{
-                            fontSize: 18,
-                            fontWeight: 700,
-                            color: C.text,
-                            fontFamily: "'Barlow Condensed',sans-serif",
-                          }}
-                        >
-                          {s.v}
-                        </div>
-                        <div
-                          style={{
-                            fontSize: 10,
-                            color: C.mutedLt,
-                            marginTop: 2,
-                          }}
-                        >
-                          {s.s}
-                        </div>
+                        <div style={{ fontSize:9.5, color:C.muted, fontWeight:600, textTransform:"uppercase", letterSpacing:0.6, marginBottom:3 }}>{s.l}</div>
+                        <div style={{ fontSize:18, fontWeight:700, color:C.text, fontFamily:"'Barlow Condensed',sans-serif" }}>{s.v}</div>
+                        <div style={{ fontSize:10, color:C.mutedLt, marginTop:2 }}>{s.s}</div>
                       </div>
-                      <div style={{ fontSize: 16, opacity: 0.08 }}>{s.ico}</div>
+                      <div style={{ fontSize:16, opacity:0.1 }}>{s.ico}</div>
                     </div>
                   </div>
                 ))}
