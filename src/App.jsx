@@ -243,6 +243,7 @@ const NAV = [
   { id: "PurchaseOrders", ico: "📦" },
   { id: "JobCards", ico: "🔧" },
   { id: "AIAssist", ico: "✦" },
+  { id: "FleetMap", ico: "◉" },
   { id: "Settings", ico: "⚙" },
 ];
 const NAV_LABELS = {
@@ -282,6 +283,7 @@ const NAV_LABELS = {
   PurchaseOrders: "Purchase Orders",
   JobCards: "Job Cards",
   AIAssist: "AI Plant Assistant",
+  FleetMap: "Fleet Visual Map",
   Settings: "Settings",
 };
 const ROLES = {
@@ -1186,7 +1188,7 @@ const NAV_SECTIONS = [
   { label: "Operations", ids: ["Maintenance","JobCards","Schedules","Fuel","FuelRecon","Incidents","Hire","PreOp"] },
   { label: "People", ids: ["Employees", "Timesheets", "Leave", "Projects"] },
   { label: "Finance", ids: ["Budgets", "Compliance", "Reports", "SARSReport", "ProjectCost", "PurchaseOrders"] },
-  { label: "Intelligence", ids: ["Analytics", "AIAssist", "FuelRecon", "Utilisation", "Alerts", "AssetExpenses"] },
+  { label: "Intelligence", ids: ["Analytics", "AIAssist", "FleetMap", "FuelRecon", "Utilisation", "Alerts", "AssetExpenses"] },
   { label: "System", ids: ["Suppliers","Contractors","AuditLog","Import","Settings"] },
 ];
 
@@ -2281,6 +2283,382 @@ Portfolio: Cost R${totalCost.toLocaleString()} | Book Value R${Math.round(totalB
           <button onClick={()=>sendMessage()} disabled={!aiInput.trim()||aiLoading} style={{background:aiInput.trim()&&!aiLoading?C.red:C.border,color:"white",border:"none",borderRadius:9,width:44,height:44,cursor:aiInput.trim()&&!aiLoading?"pointer":"default",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,transition:"all 0.15s",flexShrink:0}}>→</button>
         </div>
       </div>
+    </div>
+  );
+}
+
+
+function FleetMapTab({ assets, maint, fuel, incidents, conditions, transfers, preops, assignments,
+  spares, jobCards, siteNames, today, fmt, depreciate, getDaysSinceLastTransfer,
+  getAssetCurrentSite, C, Btn, Pill, KPI, PageTitle, setTab }) {
+
+  const [filterStatus, setFilterStatus] = useState("All");
+  const [filterCat, setFilterCat] = useState("All");
+  const [selectedAsset, setSelectedAsset] = useState(null);
+
+  const CAT_ICONS = {
+    "Vehicle": "🚗", "TLB": "🚜", "Excavator": "⛏", "Compactor": "🔩",
+    "Generator": "⚡", "Trailer": "🚛", "Grader": "🏗", "Tipper Truck": "🚚",
+    "Tools": "🔧", "Other": "⚙",
+  };
+
+  const STATUS_COLORS = {
+    "Active": C.success, "Under Maintenance": C.warn,
+    "Disposed": C.muted, "Inactive": C.muted,
+  };
+
+  const STATUS_BG = {
+    "Active": "#ECFDF5", "Under Maintenance": "#FFFBEB",
+    "Disposed": "#F3F4F6", "Inactive": "#F3F4F6",
+  };
+
+  const categories = ["All", ...new Set(assets.map(a => a.category))];
+  const statuses   = ["All", "Active", "Under Maintenance", "Inactive", "Disposed"];
+
+  const visibleAssets = assets.filter(a => {
+    if (filterStatus !== "All" && a.status !== filterStatus) return false;
+    if (filterCat !== "All" && a.category !== filterCat) return false;
+    return true;
+  });
+
+  // Build per-site asset lists
+  const assetsBySite = siteNames.map(site => ({
+    site,
+    assets: visibleAssets.filter(a => getAssetCurrentSite(a) === site),
+  }));
+
+  // Assets not at any named site
+  const unmapped = visibleAssets.filter(a => !siteNames.includes(getAssetCurrentSite(a)));
+
+  // Fleet health helpers
+  const getAssetHealth = (a) => {
+    const d = depreciate(a);
+    const pct = Number(a.purchaseCost) > 0 ? d.accumulated / Number(a.purchaseCost) : 0;
+    const latestCond = [...conditions].filter(c => c.assetId === a.id)
+      .sort((x, y) => y.assessmentDate > x.assessmentDate ? 1 : -1)[0];
+    const openJC = jobCards.filter(j => j.assetId === a.id &&
+      !["Complete","Cancelled","Invoiced"].includes(j.status)).length;
+    const openInc = incidents.filter(i => i.assetId === a.id && i.resolved === "No").length;
+    const noPreop = !preops.find(p => p.assetId === a.id && p.date === today());
+    const stale = getDaysSinceLastTransfer(a.id);
+    const longStay = stale !== null && stale > 180;
+
+    if (a.status === "Under Maintenance" || openInc > 0) return "critical";
+    if (latestCond?.rating === "Poor" || latestCond?.rating === "Write-Off Recommended") return "critical";
+    if (openJC > 0 || pct > 0.75) return "warning";
+    if (noPreop && a.status === "Active") return "warning";
+    if (longStay) return "info";
+    return "good";
+  };
+
+  const HEALTH_DOT = {
+    good:     { bg: C.success,  label: "Good" },
+    warning:  { bg: C.warn,     label: "Attention" },
+    critical: { bg: C.red,      label: "Critical" },
+    info:     { bg: C.info,     label: "Stationary" },
+  };
+
+  // Summary counts
+  const totalActive  = assets.filter(a => a.status === "Active").length;
+  const totalMaint   = assets.filter(a => a.status === "Under Maintenance").length;
+  const criticalCount = assets.filter(a => getAssetHealth(a) === "critical").length;
+  const warnCount    = assets.filter(a => getAssetHealth(a) === "warning").length;
+
+  // Asset detail card
+  const AssetDetailPanel = ({ a, onClose }) => {
+    const d = depreciate(a);
+    const health = getAssetHealth(a);
+    const openJCs = jobCards.filter(j => j.assetId === a.id && !["Complete","Cancelled","Invoiced"].includes(j.status));
+    const openInc = incidents.filter(i => i.assetId === a.id && i.resolved === "No");
+    const latestCond = [...conditions].filter(c => c.assetId === a.id)
+      .sort((x, y) => y.assessmentDate > x.assessmentDate ? 1 : -1)[0];
+    const lastMaint = [...maint].filter(m => m.assetId === a.id)
+      .sort((x, y) => y.date > x.date ? 1 : -1)[0];
+    const lastFuel = [...fuel].filter(f => f.assetId === a.id)
+      .sort((x, y) => y.date > x.date ? 1 : -1)[0];
+    const currentSite = getAssetCurrentSite(a);
+    const daysSince = getDaysSinceLastTransfer(a.id);
+    const todayPreop = preops.find(p => p.assetId === a.id && p.date === today());
+    const assignedOp = [...assignments].filter(x => x.assetId === a.id && !x.endDate)
+      .sort((x,y) => y.startDate > x.startDate ? 1 : -1)[0];
+
+    return (
+      <div style={{
+        position: "fixed", inset: 0, background: "rgba(17,19,24,0.65)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        zIndex: 9999, padding: 20, backdropFilter: "blur(3px)"
+      }} onClick={onClose}>
+        <div style={{
+          background: C.white, borderRadius: 14, width: "100%", maxWidth: 520,
+          maxHeight: "90vh", overflowY: "auto",
+          boxShadow: "0 24px 80px rgba(0,0,0,0.3)", border: `1px solid ${C.border}`
+        }} onClick={e => e.stopPropagation()}>
+          {/* HEADER */}
+          <div style={{ background: C.dark, padding: "22px 26px", borderRadius: "14px 14px 0 0" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+                  <span style={{ fontSize: 26 }}>{CAT_ICONS[a.category] || "⚙"}</span>
+                  <div>
+                    <div style={{ fontSize: 18, fontWeight: 800, color: "white", fontFamily: "'Barlow Condensed',sans-serif" }}>{a.name}</div>
+                    <div style={{ fontSize: 11, color: "#6B7280" }}>{a.category} · {a.serialNumber || "No serial"}</div>
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <Pill text={a.status} color={a.status === "Active" ? "green" : a.status === "Under Maintenance" ? "yellow" : "gray"} />
+                  <div style={{ background: HEALTH_DOT[health].bg, color: "white", borderRadius: 20, padding: "2px 10px", fontSize: 11, fontWeight: 700 }}>
+                    ● {HEALTH_DOT[health].label}
+                  </div>
+                </div>
+              </div>
+              <button onClick={onClose} style={{ background: "none", border: "none", color: "#6B7280", fontSize: 20, cursor: "pointer" }}>✕</button>
+            </div>
+          </div>
+
+          <div style={{ padding: "22px 26px" }}>
+            {/* LOCATION */}
+            <div style={{ background: C.infoBg, border: "1px solid #BFDBFE", borderRadius: 9, padding: "12px 16px", marginBottom: 16 }}>
+              <div style={{ fontSize: 10, color: C.muted, textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 4 }}>Current Location</div>
+              <div style={{ fontSize: 16, fontWeight: 800, color: C.info, fontFamily: "'Barlow Condensed',sans-serif" }}>📍 {currentSite}</div>
+              {daysSince !== null && (
+                <div style={{ fontSize: 11, color: daysSince > 180 ? C.warn : C.muted, marginTop: 3 }}>
+                  {daysSince > 180 ? `⚠ Stationary for ${daysSince} days` : `Last moved ${daysSince} days ago`}
+                </div>
+              )}
+              {assignedOp && (
+                <div style={{ fontSize: 11, color: C.muted, marginTop: 3 }}>👤 Assigned to: <strong>{assignedOp.employeeName}</strong></div>
+              )}
+            </div>
+
+            {/* ALERTS */}
+            {(openJCs.length > 0 || openInc.length > 0) && (
+              <div style={{ background: C.redLight, border: `1px solid ${C.redBorder}`, borderRadius: 9, padding: "12px 16px", marginBottom: 16 }}>
+                {openInc.length > 0 && <div style={{ fontSize: 12, fontWeight: 700, color: C.red, marginBottom: 4 }}>⚠ {openInc.length} Open Incident{openInc.length !== 1 ? "s" : ""}</div>}
+                {openJCs.length > 0 && <div style={{ fontSize: 12, fontWeight: 700, color: C.red }}>🔧 {openJCs.length} Active Job Card{openJCs.length !== 1 ? "s" : ""}</div>}
+              </div>
+            )}
+
+            {/* STATS GRID */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 16 }}>
+              {[
+                { l: "Book Value", v: fmt(d.bookValue), c: d.bookValue > 0 ? C.success : C.muted },
+                { l: "Depreciated", v: `${Number(a.purchaseCost) > 0 ? ((d.accumulated / Number(a.purchaseCost)) * 100).toFixed(0) : 0}%`, c: C.warn },
+                { l: "Purchase Cost", v: fmt(a.purchaseCost), c: C.muted },
+                { l: "Last Service", v: lastMaint?.date || "Never", c: C.text },
+                { l: "Last Fuel", v: lastFuel?.date || "None logged", c: C.text },
+                { l: "Condition", v: latestCond?.rating || "Not assessed", c: latestCond ? (latestCond.rating === "Poor" || latestCond.rating === "Write-Off Recommended" ? C.red : C.success) : C.muted },
+              ].map(item => (
+                <div key={item.l} style={{ background: C.surface, borderRadius: 7, padding: "10px 12px" }}>
+                  <div style={{ fontSize: 9, color: C.muted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 3 }}>{item.l}</div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: item.c }}>{item.v}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* TODAY PRE-OP */}
+            <div style={{ background: todayPreop ? C.successBg : C.warnBg, border: `1px solid ${todayPreop ? "#A7F3D0" : "#FDE68A"}`, borderRadius: 9, padding: "10px 14px", marginBottom: 14, fontSize: 12, fontWeight: 600, color: todayPreop ? C.success : C.warn }}>
+              {todayPreop
+                ? `✓ Pre-op check completed today by ${todayPreop.operatorName}`
+                : "⚠ No pre-operation checklist completed today"}
+            </div>
+
+            <div style={{ display: "flex", gap: 8 }}>
+              <Btn size="sm" variant="outline" onClick={() => { setSelectedAsset(null); setTab("Maintenance"); }}>View Maintenance</Btn>
+              <Btn size="sm" variant="outline" onClick={() => { setSelectedAsset(null); setTab("Transfers"); }}>Transfer Log</Btn>
+              <Btn size="sm" variant="ghost" onClick={onClose}>Close</Btn>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div>
+      <PageTitle
+        title="FLEET VISUAL MAP"
+        sub="Live asset positions across all sites — click any asset for full details"
+      />
+
+      {/* KPI STRIP */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 14, marginBottom: 22 }}>
+        <KPI label="Total Assets" value={assets.length} color={C.info} icon="◉" sub="on register" />
+        <KPI label="Active" value={totalActive} color={C.success} icon="▶" sub="deployed" />
+        <KPI label="Under Maintenance" value={totalMaint} color={C.warn} icon="🔧" sub="off-road" />
+        <KPI label="Critical Alerts" value={criticalCount} color={criticalCount > 0 ? C.red : C.success} icon="⚑" sub="need attention" />
+        <KPI label="Needs Attention" value={warnCount} color={warnCount > 0 ? C.warn : C.success} icon="⚐" sub="monitor" />
+        <KPI label="Sites Active" value={assetsBySite.filter(s => s.assets.length > 0).length} color={C.muted} icon="📍" sub={`of ${siteNames.length}`} />
+      </div>
+
+      {/* LEGEND */}
+      <div style={{ display: "flex", gap: 16, marginBottom: 18, flexWrap: "wrap", alignItems: "center" }}>
+        <span style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 0.8 }}>Health:</span>
+        {Object.entries(HEALTH_DOT).map(([k, v]) => (
+          <div key={k} style={{ display: "flex", alignItems: "center", gap: 5 }}>
+            <div style={{ width: 10, height: 10, borderRadius: "50%", background: v.bg }} />
+            <span style={{ fontSize: 11, color: C.muted }}>{v.label}</span>
+          </div>
+        ))}
+        <div style={{ marginLeft: "auto", display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {/* STATUS FILTER */}
+          {statuses.map(s => (
+            <button key={s} onClick={() => setFilterStatus(s)} style={{
+              padding: "5px 12px", borderRadius: 20, fontSize: 11, fontWeight: 600, cursor: "pointer",
+              border: `1px solid ${filterStatus === s ? C.red : C.border}`,
+              background: filterStatus === s ? C.red : C.white,
+              color: filterStatus === s ? "white" : C.muted, fontFamily: "'DM Sans',sans-serif"
+            }}>{s}</button>
+          ))}
+        </div>
+      </div>
+
+      {/* CATEGORY FILTER */}
+      <div style={{ display: "flex", gap: 6, marginBottom: 20, flexWrap: "wrap" }}>
+        {categories.map(cat => (
+          <button key={cat} onClick={() => setFilterCat(cat)} style={{
+            padding: "4px 12px", borderRadius: 20, fontSize: 11, fontWeight: 600, cursor: "pointer",
+            border: `1px solid ${filterCat === cat ? C.info : C.border}`,
+            background: filterCat === cat ? C.infoBg : C.white,
+            color: filterCat === cat ? C.info : C.muted, fontFamily: "'DM Sans',sans-serif"
+          }}>
+            {cat !== "All" && CAT_ICONS[cat] ? `${CAT_ICONS[cat]} ` : ""}{cat}
+          </button>
+        ))}
+      </div>
+
+      {/* SITE GRID */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px,1fr))", gap: 16 }}>
+        {assetsBySite.map(({ site, assets: siteAssets }) => {
+          const activeCount  = siteAssets.filter(a => a.status === "Active").length;
+          const maintCount   = siteAssets.filter(a => a.status === "Under Maintenance").length;
+          const critCount    = siteAssets.filter(a => getAssetHealth(a) === "critical").length;
+          const isEmpty      = siteAssets.length === 0;
+
+          return (
+            <div key={site} style={{
+              background: C.white, borderRadius: 12,
+              border: `1px solid ${critCount > 0 ? C.redBorder : C.border}`,
+              overflow: "hidden", boxShadow: "0 2px 8px rgba(0,0,0,0.05)",
+              opacity: isEmpty ? 0.5 : 1,
+            }}>
+              {/* SITE HEADER */}
+              <div style={{
+                background: isEmpty ? C.surface : C.dark,
+                padding: "14px 18px",
+                display: "flex", justifyContent: "space-between", alignItems: "center"
+              }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: isEmpty ? C.muted : "white", fontFamily: "'Barlow Condensed',sans-serif", letterSpacing: 0.5 }}>
+                    📍 {site.toUpperCase()}
+                  </div>
+                  <div style={{ fontSize: 11, color: isEmpty ? C.mutedLt : "#6B7280", marginTop: 2 }}>
+                    {isEmpty ? "No assets" : `${siteAssets.length} asset${siteAssets.length !== 1 ? "s" : ""}`}
+                    {activeCount > 0 && ` · ${activeCount} active`}
+                    {maintCount > 0 && ` · ${maintCount} in maintenance`}
+                  </div>
+                </div>
+                {!isEmpty && (
+                  <div style={{ display: "flex", gap: 6 }}>
+                    {critCount > 0 && (
+                      <div style={{ background: C.red, color: "white", borderRadius: 20, padding: "3px 10px", fontSize: 11, fontWeight: 700 }}>
+                        ⚑ {critCount}
+                      </div>
+                    )}
+                    <div style={{ background: "rgba(255,255,255,0.1)", color: "white", borderRadius: 20, padding: "3px 10px", fontSize: 11, fontWeight: 700 }}>
+                      {siteAssets.length}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* ASSET CHIPS */}
+              <div style={{ padding: isEmpty ? "16px 18px" : "14px 18px", minHeight: 60 }}>
+                {isEmpty ? (
+                  <div style={{ fontSize: 12, color: C.mutedLt, fontStyle: "italic", textAlign: "center" }}>No assets deployed here</div>
+                ) : (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                    {siteAssets.map(a => {
+                      const health  = getAssetHealth(a);
+                      const dot     = HEALTH_DOT[health];
+                      const daysSince = getDaysSinceLastTransfer(a.id);
+                      const openJC  = jobCards.filter(j => j.assetId === a.id && !["Complete","Cancelled","Invoiced"].includes(j.status)).length;
+
+                      return (
+                        <div
+                          key={a.id}
+                          onClick={() => setSelectedAsset(a)}
+                          title={`${a.name} · ${a.status} · Click for details`}
+                          style={{
+                            background: STATUS_BG[a.status] || C.surface,
+                            border: `1.5px solid ${health === "critical" ? C.redBorder : health === "warning" ? "#FDE68A" : C.border}`,
+                            borderRadius: 9, padding: "8px 12px", cursor: "pointer",
+                            transition: "all 0.15s", minWidth: 0,
+                            display: "flex", alignItems: "center", gap: 7,
+                          }}
+                          onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-2px)"; e.currentTarget.style.boxShadow = "0 4px 12px rgba(0,0,0,0.1)"; }}
+                          onMouseLeave={e => { e.currentTarget.style.transform = ""; e.currentTarget.style.boxShadow = ""; }}
+                        >
+                          {/* Health dot */}
+                          <div style={{ width: 8, height: 8, borderRadius: "50%", background: dot.bg, flexShrink: 0 }} />
+                          {/* Icon */}
+                          <span style={{ fontSize: 14, flexShrink: 0 }}>{CAT_ICONS[a.category] || "⚙"}</span>
+                          {/* Name */}
+                          <div style={{ minWidth: 0 }}>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: C.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 120 }}>
+                              {a.name}
+                            </div>
+                            <div style={{ fontSize: 9, color: C.muted, marginTop: 1 }}>
+                              {a.category}
+                              {openJC > 0 && <span style={{ color: C.red, fontWeight: 700, marginLeft: 4 }}>· {openJC} JC</span>}
+                              {daysSince !== null && daysSince > 180 && <span style={{ color: C.warn, fontWeight: 700, marginLeft: 4 }}>· {daysSince}d</span>}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* SITE FOOTER — maintenance summary */}
+              {!isEmpty && (
+                <div style={{ borderTop: `1px solid ${C.border}`, padding: "8px 18px", background: C.surface, display: "flex", gap: 12 }}>
+                  <span style={{ fontSize: 10, color: C.success, fontWeight: 700 }}>
+                    ● {activeCount} Active
+                  </span>
+                  {maintCount > 0 && <span style={{ fontSize: 10, color: C.warn, fontWeight: 700 }}>● {maintCount} Maintenance</span>}
+                  {critCount  > 0 && <span style={{ fontSize: 10, color: C.red, fontWeight: 700 }}>⚑ {critCount} Critical</span>}
+                  <span style={{ fontSize: 10, color: C.muted, marginLeft: "auto" }}>
+                    {fmt(siteAssets.reduce((s, a) => s + depreciate(a).bookValue, 0))} book value
+                  </span>
+                </div>
+              )}
+            </div>
+          );
+        })}
+
+        {/* UNMAPPED ASSETS */}
+        {unmapped.length > 0 && (
+          <div style={{ background: C.warnBg, border: `1px solid #FDE68A`, borderRadius: 12, overflow: "hidden" }}>
+            <div style={{ background: C.warn, padding: "14px 18px" }}>
+              <div style={{ fontSize: 13, fontWeight: 800, color: "white", fontFamily: "'Barlow Condensed',sans-serif" }}>⚠ UNKNOWN LOCATION</div>
+              <div style={{ fontSize: 11, color: "rgba(255,255,255,0.8)", marginTop: 2 }}>{unmapped.length} asset{unmapped.length !== 1 ? "s" : ""} not at a named site</div>
+            </div>
+            <div style={{ padding: "14px 18px", display: "flex", flexWrap: "wrap", gap: 8 }}>
+              {unmapped.map(a => (
+                <div key={a.id} onClick={() => setSelectedAsset(a)} style={{ background: C.white, border: `1px solid #FDE68A`, borderRadius: 8, padding: "6px 12px", cursor: "pointer", fontSize: 11, fontWeight: 600, color: C.warn }}>
+                  {CAT_ICONS[a.category]} {a.name}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ASSET DETAIL MODAL */}
+      {selectedAsset && (
+        <AssetDetailPanel a={selectedAsset} onClose={() => setSelectedAsset(null)} />
+      )}
     </div>
   );
 }
@@ -12898,6 +13276,21 @@ export default function App() {
               totalCost={totalCost} totalBook={totalBook}
               fmt={fmt} today={today} monthLabel={monthLabel}
               C={C} Btn={Btn} KPI={KPI}
+            />
+          )}
+
+          {/* FLEET VISUAL MAP */}
+          {tab === "FleetMap" && (
+            <FleetMapTab
+              assets={assets} maint={maint} fuel={fuel} incidents={incidents}
+              conditions={conditions} transfers={transfers} preops={preops}
+              assignments={assignments} spares={spares} jobCards={jobCards}
+              siteNames={siteNames} today={today} fmt={fmt}
+              depreciate={depreciate}
+              getDaysSinceLastTransfer={getDaysSinceLastTransfer}
+              getAssetCurrentSite={getAssetCurrentSite}
+              C={C} Btn={Btn} Pill={Pill} KPI={KPI} PageTitle={PageTitle}
+              setTab={setTab}
             />
           )}
 
