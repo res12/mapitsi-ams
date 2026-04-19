@@ -1,10 +1,6 @@
 import { useState, useEffect } from "react";
-
-import { db, auth } from "./firebase";
-
-import { collection, doc, getDocs, setDoc, deleteDoc, onSnapshot } from "firebase/firestore";
-
-import { signInAnonymously, onAuthStateChanged, signOut } from "firebase/auth";
+import * as XLSX from "xlsx";
+import { db, auth, collection, doc, getDocs, setDoc, deleteDoc, onSnapshot, signInAnonymously, onAuthStateChanged, signOut } from "./firebase";
 
 const C = {
   red: "#8C1414",
@@ -174,6 +170,7 @@ const MODULE_NAMES = {
   mcw_contractors: "Contractor Register",
   mcw_transfers: "Asset Transfer Log",
   mcw_jobcards: "Job Cards",
+  mcw_pos: "Purchase Orders",
 };
 const COMPLIANCE_TYPES = [
   "Roadworthy Certificate",
@@ -243,6 +240,7 @@ const NAV = [
   { id: "PreOp", ico: "☑" },
   { id: "Contractors", ico: "⊡" },
   { id: "Transfers", ico: "⇄" },
+  { id: "PurchaseOrders", ico: "📦" },
   { id: "JobCards", ico: "🔧" },
   { id: "AIAssist", ico: "✦" },
   { id: "Settings", ico: "⚙" },
@@ -281,6 +279,7 @@ const NAV_LABELS = {
   PreOp: "Pre-Op Checklists",
   Contractors: "Contractor Register",
   Transfers: "Asset Transfer Log",
+  PurchaseOrders: "Purchase Orders",
   JobCards: "Job Cards",
   AIAssist: "AI Plant Assistant",
   Settings: "Settings",
@@ -958,25 +957,133 @@ function HBarChart({ data, valueKey, labelKey, color, fmtFn }) {
     </div>
   );
 }
+// ── PROFESSIONAL EXCEL STYLING HELPERS ──────────────────────────────────────
+const XL = {
+  // Brand colours (ARGB — full opacity prefix AA)
+  RED:    "FF8C1414",
+  DARK:   "FF111318",
+  WHITE:  "FFFFFFFF",
+  LIGHT:  "FFF5F6FA",
+  STRIPE: "FFFAFAFA",
+  BORDER: "FFE4E6EE",
+  MUTED:  "FF6B7280",
+  WARN:   "FFFEF3C7",
+  SUCCESS:"FFD1FAE5",
+  TOTAL:  "FF1C2030",
+
+  // Reusable border definition
+  thinBorder(color = "FFD1D5DB") {
+    const s = { style:"thin", color:{ rgb: color } };
+    return { top:s, bottom:s, left:s, right:s };
+  },
+
+  // Header cell style — dark brand background, white bold text
+  header(wide = false) {
+    return {
+      font:  { bold:true, color:{ rgb: XL.WHITE }, sz: wide ? 10 : 9, name:"Calibri" },
+      fill:  { fgColor:{ rgb: XL.DARK }, patternType:"solid" },
+      alignment: { horizontal:"left", vertical:"center", wrapText: true },
+      border: XL.thinBorder("FF374151"),
+    };
+  },
+
+  // Red accent header (for section sub-headers)
+  redHeader() {
+    return {
+      font:  { bold:true, color:{ rgb: XL.WHITE }, sz:9, name:"Calibri" },
+      fill:  { fgColor:{ rgb: XL.RED }, patternType:"solid" },
+      alignment: { horizontal:"left", vertical:"center" },
+      border: XL.thinBorder(XL.RED),
+    };
+  },
+
+  // Normal data cell
+  cell(stripe = false, bold = false, color = null, align = "left") {
+    return {
+      font:  { bold, color:{ rgb: color || "FF1A1F2E" }, sz:9, name:"Calibri" },
+      fill:  { fgColor:{ rgb: stripe ? XL.STRIPE : XL.WHITE }, patternType:"solid" },
+      alignment: { horizontal: align, vertical:"center", wrapText: false },
+      border: XL.thinBorder(),
+    };
+  },
+
+  // Totals row — dark background, coloured text
+  total(accent = null) {
+    return {
+      font:  { bold:true, color:{ rgb: accent || XL.WHITE }, sz:10, name:"Calibri" },
+      fill:  { fgColor:{ rgb: XL.TOTAL }, patternType:"solid" },
+      alignment: { horizontal:"right", vertical:"center" },
+      border: XL.thinBorder("FF374151"),
+    };
+  },
+
+  // Currency format
+  ZAR: "R\\ #,##0.00",
+  INT: "#,##0",
+  PCT: "0.0%",
+};
+
+// Applies full professional styling to a worksheet after json_to_sheet
+function styleSheet(ws, rows, colCount) {
+  if (!ws["!ref"]) return;
+  const range = XLSX.utils.decode_range(ws["!ref"]);
+
+  for (let R = range.s.r; R <= range.e.r; R++) {
+    const isHeader = R === 0;
+    const isTotalRow = R === range.e.r && rows.length > 0 &&
+      String(Object.values(rows[rows.length - 1])[0] || "").toUpperCase().includes("TOTAL");
+    const stripe = R % 2 === 0;
+
+    for (let C = range.s.c; C <= range.e.c; C++) {
+      const addr = XLSX.utils.encode_cell({ r: R, c: C });
+      if (!ws[addr]) ws[addr] = { t:"z" };
+      const cell = ws[addr];
+
+      if (isHeader) {
+        cell.s = XL.header();
+      } else if (isTotalRow) {
+        const s = XL.total(C === 0 ? XL.WHITE : "FFFDE68A");
+        s.alignment = { horizontal: C === 0 ? "left" : "right", vertical:"center" };
+        cell.s = s;
+      } else {
+        // Detect numeric / currency columns
+        const isNum = cell.t === "n";
+        const headerCell = ws[XLSX.utils.encode_cell({ r:0, c:C })];
+        const hdr = String(headerCell?.v || "").toLowerCase();
+        const isCurrency = isNum && (hdr.includes("(r)") || hdr.includes("cost") || hdr.includes("value") || hdr.includes("amount") || hdr.includes("rate") || hdr.includes("budget") || hdr.includes("spend") || hdr.includes("total") || hdr.includes("price"));
+        const isPct = isNum && hdr.includes("%");
+        const isInt = isNum && !isCurrency && !isPct;
+
+        if (isCurrency) cell.z = XL.ZAR;
+        else if (isPct) cell.z = XL.PCT;
+        else if (isInt) cell.z = XL.INT;
+
+        const bold = isNum && (hdr.includes("total") || hdr.includes("value"));
+        cell.s = XL.cell(stripe, bold, null, isNum ? "right" : "left");
+      }
+    }
+  }
+
+  // Row heights
+  ws["!rows"] = ws["!rows"] || [];
+  ws["!rows"][0] = { hpt: 22 }; // header row taller
+  for (let R = 1; R <= range.e.r; R++) {
+    ws["!rows"][R] = { hpt: 18 };
+  }
+}
+
 function addSheet(wb, rows, name, colWidths) {
-  const ws = XLSX.utils.json_to_sheet(
-    rows.length ? rows : [{ Note: `No ${name} records` }]
-  );
+  const data = rows.length ? rows : [{ Note: `No ${name} records` }];
+  const ws = XLSX.utils.json_to_sheet(data);
   ws["!cols"] = colWidths.map((w) => ({ wch: w }));
-  ws["!freeze"] = {
-    xSplit: 0,
-    ySplit: 1,
-    topLeftCell: "A2",
-    activePane: "bottomLeft",
-    state: "frozen",
-  };
-  Object.keys(ws)
-    .filter((k) => !k.startsWith("!"))
-    .forEach((k) => {
-      if (ws[k]?.t === "n") ws[k].z = "R #,##0.00";
-    });
+  ws["!freeze"] = { xSplit:0, ySplit:1, topLeftCell:"A2", activePane:"bottomLeft", state:"frozen" };
+  styleSheet(ws, data, colWidths.length);
   XLSX.utils.book_append_sheet(wb, ws, name);
 }
+const PO_STATUS = ["Draft","Awaiting Approval","Approved","Sent to Supplier","Partially Received","Fully Received","Cancelled"];
+const PO_TYPES = ["Parts & Spares","Fuel","Equipment","Tools","Safety Equipment","Maintenance Services","Other"];
+const PO_TERMS = ["COD","7 days","14 days","30 days","45 days","60 days"];
+
 const JOB_CARD_STATUS = [
   "Open",
   "Assigned",
@@ -1078,7 +1185,7 @@ const NAV_SECTIONS = [
   { label: "Assets", ids: ["Assets","Depreciation","Conditions","Warranties","Assignments","Disposals","Spares","Transfers"] },
   { label: "Operations", ids: ["Maintenance","JobCards","Schedules","Fuel","FuelRecon","Incidents","Hire","PreOp"] },
   { label: "People", ids: ["Employees", "Timesheets", "Leave", "Projects"] },
-  { label: "Finance", ids: ["Budgets", "Compliance", "Reports", "SARSReport", "ProjectCost"] },
+  { label: "Finance", ids: ["Budgets", "Compliance", "Reports", "SARSReport", "ProjectCost", "PurchaseOrders"] },
   { label: "Intelligence", ids: ["Analytics", "AIAssist", "FuelRecon", "Utilisation", "Alerts", "AssetExpenses"] },
   { label: "System", ids: ["Suppliers","Contractors","AuditLog","Import","Settings"] },
 ];
@@ -1176,6 +1283,349 @@ function Toast({ toasts, remove }) {
     </div>
   );
 }
+
+function PurchaseOrdersTab({ purchaseOrders, setPurchaseOrders, suppliers, spares, projects, currentUser, persist, add, update, del, logAudit, toast, can, fmt, today, C, inp, Field, Row2, Btn, Card, Tbl, TR, Empty, KPI, Pill, PageTitle }) {
+  const dPO = { poNumber:"", supplierId:"", type:"Parts & Spares", status:"Draft", dateCreated:today(), dateRequired:"", projectId:"", items:[], notes:"", approvedBy:"", deliveryAddress:"", terms:"30 days", receivedDate:"", invoiceNumber:"" };
+  const [poForm, setPoForm] = useState(dPO);
+  const [poModal, setPoModal] = useState(null);
+  const [poView, setPoView] = useState(null);
+  const [poFilter, setPoFilter] = useState("All");
+
+  const getPoTotal = po => (po.items||[]).reduce((s,i) => s + Number(i.qty||0)*Number(i.unitPrice||0), 0);
+  const openPOs = purchaseOrders.filter(p => !["Fully Received","Cancelled"].includes(p.status)).length;
+  const totalValue = purchaseOrders.reduce((s,p) => s + getPoTotal(p), 0);
+  const pendingValue = purchaseOrders.filter(p => !["Fully Received","Cancelled"].includes(p.status)).reduce((s,p) => s + getPoTotal(p), 0);
+  const filteredPOs = poFilter === "All" ? purchaseOrders : purchaseOrders.filter(p => p.status === poFilter);
+  const statusColor = s => s==="Fully Received"?"green":s==="Approved"||s==="Sent to Supplier"?"blue":s==="Partially Received"||s==="Awaiting Approval"?"yellow":s==="Cancelled"?"gray":"gray";
+  const genPONum = () => `PO-${new Date().getFullYear()}-${String(purchaseOrders.length + 1).padStart(4,"0")}`;
+
+  return (
+    <div>
+      <PageTitle title="PURCHASE ORDERS" sub="Raise, approve and track all procurement from suppliers"
+        action={can(currentUser,"canAdd") && <Btn onClick={()=>{ setPoForm({...dPO, poNumber:genPONum()}); setPoModal("form"); }}>＋ Raise Purchase Order</Btn>}
+      />
+
+      {/* KPIs */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(155px,1fr))",gap:14,marginBottom:22}}>
+        <KPI label="Total POs" value={purchaseOrders.length} color={C.info} icon="📦" sub="all time"/>
+        <KPI label="Open / Pending" value={openPOs} color={openPOs>0?C.warn:C.success} icon="⚑" sub="awaiting action"/>
+        <KPI label="Total PO Value" value={fmt(totalValue)} color={C.muted} icon="₽" sub="all orders"/>
+        <KPI label="Pending Value" value={fmt(pendingValue)} color={pendingValue>0?C.warn:C.success} icon="₽" sub="not yet received"/>
+        <KPI label="Fully Received" value={purchaseOrders.filter(p=>p.status==="Fully Received").length} color={C.success} icon="✓" sub="completed"/>
+        <KPI label="Draft / Pending Approval" value={purchaseOrders.filter(p=>["Draft","Awaiting Approval"].includes(p.status)).length} color={C.muted} icon="✎" sub="in progress"/>
+      </div>
+
+      {/* Filter chips */}
+      <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap"}}>
+        {["All",...PO_STATUS].map(s=>(
+          <button key={s} onClick={()=>setPoFilter(s)} style={{padding:"6px 14px",borderRadius:20,border:`1px solid ${poFilter===s?C.red:C.border}`,background:poFilter===s?C.red:C.white,color:poFilter===s?"white":C.muted,fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",transition:"all 0.15s"}}>
+            {s} {s!=="All"&&purchaseOrders.filter(p=>p.status===s).length>0?`(${purchaseOrders.filter(p=>p.status===s).length})`:""}
+          </button>
+        ))}
+      </div>
+
+      {/* Table */}
+      {filteredPOs.length===0 ? (
+        <Empty icon="📦" title={poFilter==="All"?"No purchase orders yet":`No ${poFilter} purchase orders`}
+          desc="Raise a PO for every procurement — parts, fuel, equipment or services. Full audit trail from request through to delivery and invoice."
+          btn={<Btn onClick={()=>{setPoForm({...dPO,poNumber:genPONum()});setPoModal("form");}}>Raise First Purchase Order</Btn>}/>
+      ) : (
+        <Card>
+          <Tbl cols={["PO Number","Supplier","Type","Lines","Total Value","Date Raised","Required By","Status","Project",""]}>
+            {[...filteredPOs].sort((a,b)=>b.dateCreated>a.dateCreated?1:-1).map((po,i)=>{
+              const supplier=suppliers.find(s=>s.id===po.supplierId);
+              const total=getPoTotal(po);
+              const overdue=po.dateRequired&&po.dateRequired<today()&&!["Fully Received","Cancelled"].includes(po.status);
+              const project=projects.find(p=>p.id===po.projectId);
+              return (
+                <TR key={po.id} stripe={i%2!==0} cells={[
+                  <div>
+                    <div style={{fontFamily:"monospace",fontSize:11,fontWeight:700,color:C.red}}>{po.poNumber}</div>
+                    <div style={{fontSize:10,color:C.muted}}>{po.dateCreated}</div>
+                  </div>,
+                  <div>
+                    <div style={{fontWeight:700,fontSize:12,color:C.text}}>{supplier?.name||"—"}</div>
+                    <div style={{fontSize:10,color:C.mutedLt}}>{supplier?.type||""}</div>
+                  </div>,
+                  <Pill text={po.type} color="blue"/>,
+                  <span style={{fontSize:12,color:C.muted}}>{(po.items||[]).length} line{(po.items||[]).length!==1?"s":""}</span>,
+                  <span style={{fontWeight:700,color:total>0?C.text:C.mutedLt}}>{total>0?fmt(total):"—"}</span>,
+                  <span style={{fontSize:12,color:C.muted}}>{po.dateCreated}</span>,
+                  <span style={{fontSize:12,fontWeight:overdue?700:400,color:overdue?C.red:C.muted}}>{po.dateRequired||"—"}{overdue?" ⚠":""}</span>,
+                  <Pill text={po.status} color={statusColor(po.status)}/>,
+                  <span style={{fontSize:11,color:C.muted}}>{project?.name||"—"}</span>,
+                  <div style={{display:"flex",gap:4}}>
+                    <button onClick={()=>setPoView(po)} style={{color:C.info,background:"none",border:"none",cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"'DM Sans',sans-serif"}}>View</button>
+                    {can(currentUser,"canEdit")&&!["Fully Received","Cancelled"].includes(po.status)&&(
+                      <button onClick={()=>{setPoForm({...dPO,...po});setPoModal("form");}} style={{color:C.warn,background:"none",border:"none",cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"'DM Sans',sans-serif"}}>Edit</button>
+                    )}
+                    {can(currentUser,"canDelete")&&(
+                      <button onClick={()=>del("mcw_pos",setPurchaseOrders,purchaseOrders,po.id)} style={{color:C.muted,background:"none",border:"none",cursor:"pointer",fontSize:14,padding:"0 4px"}}>×</button>
+                    )}
+                  </div>
+                ]}/>
+              );
+            })}
+          </Tbl>
+        </Card>
+      )}
+
+      {/* FORM MODAL */}
+      {poModal==="form"&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(17,19,24,0.7)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:9999,padding:20,backdropFilter:"blur(3px)"}}>
+          <div style={{background:C.white,borderRadius:14,width:"100%",maxWidth:740,maxHeight:"93vh",overflowY:"auto",boxShadow:"0 24px 80px rgba(0,0,0,0.3)",border:`1px solid ${C.border}`}}>
+            <div style={{padding:"20px 28px",borderBottom:`1px solid ${C.border}`,background:C.surface,display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,zIndex:10}}>
+              <div>
+                <div style={{fontSize:15,fontWeight:700,color:C.text}}>{poForm.id?`Edit — ${poForm.poNumber}`:`New Purchase Order — ${poForm.poNumber}`}</div>
+                <div style={{fontSize:12,color:C.muted,marginTop:2}}>Complete all fields for a full procurement audit trail</div>
+              </div>
+              <button onClick={()=>setPoModal(null)} style={{background:"none",border:"none",fontSize:18,cursor:"pointer",color:C.mutedLt}}>✕</button>
+            </div>
+            <div style={{padding:"22px 28px"}}>
+              <div style={{fontSize:11,fontWeight:700,color:C.red,textTransform:"uppercase",letterSpacing:1,marginBottom:12}}>Order Details</div>
+              <Row2>
+                <Field label="PO Number" required>
+                  <input {...inp} value={poForm.poNumber} onChange={e=>setPoForm({...poForm,poNumber:e.target.value})}/>
+                </Field>
+                <Field label="Purchase Type" required>
+                  <select {...inp} value={poForm.type} onChange={e=>setPoForm({...poForm,type:e.target.value})}>
+                    {PO_TYPES.map(t=><option key={t}>{t}</option>)}
+                  </select>
+                </Field>
+              </Row2>
+              <Field label="Supplier" required>
+                <select {...inp} value={poForm.supplierId} onChange={e=>setPoForm({...poForm,supplierId:e.target.value})}>
+                  <option value="">— Select Supplier —</option>
+                  {suppliers.map(s=><option key={s.id} value={s.id}>{s.name} · {s.type}</option>)}
+                </select>
+              </Field>
+              <Row2>
+                <Field label="Date Raised" required>
+                  <input type="date" {...inp} value={poForm.dateCreated} onChange={e=>setPoForm({...poForm,dateCreated:e.target.value})}/>
+                </Field>
+                <Field label="Date Required By">
+                  <input type="date" {...inp} value={poForm.dateRequired} onChange={e=>setPoForm({...poForm,dateRequired:e.target.value})}/>
+                </Field>
+              </Row2>
+              <Row2>
+                <Field label="Status">
+                  <select {...inp} value={poForm.status} onChange={e=>setPoForm({...poForm,status:e.target.value})}>
+                    {PO_STATUS.map(s=><option key={s}>{s}</option>)}
+                  </select>
+                </Field>
+                <Field label="Payment Terms">
+                  <select {...inp} value={poForm.terms} onChange={e=>setPoForm({...poForm,terms:e.target.value})}>
+                    {PO_TERMS.map(t=><option key={t}>{t}</option>)}
+                  </select>
+                </Field>
+              </Row2>
+              <Row2>
+                <Field label="Allocate to Project">
+                  <select {...inp} value={poForm.projectId||""} onChange={e=>setPoForm({...poForm,projectId:e.target.value})}>
+                    <option value="">— No Project —</option>
+                    {projects.filter(p=>p.status==="Active").map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                </Field>
+                <Field label="Approved By">
+                  <input {...inp} value={poForm.approvedBy} onChange={e=>setPoForm({...poForm,approvedBy:e.target.value})} placeholder="Name of authorising manager"/>
+                </Field>
+              </Row2>
+              <Row2>
+                <Field label="Supplier Invoice / Reference No.">
+                  <input {...inp} value={poForm.invoiceNumber} onChange={e=>setPoForm({...poForm,invoiceNumber:e.target.value})} placeholder="On delivery/invoice from supplier"/>
+                </Field>
+                <Field label="Date Received">
+                  <input type="date" {...inp} value={poForm.receivedDate} onChange={e=>setPoForm({...poForm,receivedDate:e.target.value})}/>
+                </Field>
+              </Row2>
+              <Field label="Delivery Address">
+                <input {...inp} value={poForm.deliveryAddress} onChange={e=>setPoForm({...poForm,deliveryAddress:e.target.value})} placeholder="Where should goods be delivered?"/>
+              </Field>
+
+              {/* LINE ITEMS */}
+              <div style={{fontSize:11,fontWeight:700,color:C.red,textTransform:"uppercase",letterSpacing:1,margin:"20px 0 12px"}}>
+                Line Items
+                <span style={{fontSize:10,color:C.muted,fontWeight:400,marginLeft:8,textTransform:"none"}}>— what you are ordering</span>
+              </div>
+              <div style={{background:C.surface,borderRadius:8,border:`1px solid ${C.border}`,overflow:"hidden",marginBottom:14}}>
+                {(poForm.items||[]).length>0&&(
+                  <div style={{padding:"10px 14px",borderBottom:`1px solid ${C.border}`}}>
+                    {(poForm.items||[]).map((item,idx)=>(
+                      <div key={idx} style={{display:"flex",alignItems:"center",gap:10,marginBottom:idx<(poForm.items||[]).length-1?8:0}}>
+                        <div style={{flex:3,fontSize:12,fontWeight:600,color:C.text}}>{item.description}</div>
+                        <div style={{flex:1,fontSize:12,color:C.muted}}>Qty: {item.qty} {item.unit}</div>
+                        <div style={{flex:1,fontSize:12}}>{item.unitPrice?fmt(item.unitPrice)+"/unit":"No price"}</div>
+                        <div style={{fontSize:12,fontWeight:700,color:C.text,flex:1}}>{item.unitPrice?fmt(Number(item.qty)*Number(item.unitPrice)):"—"}</div>
+                        <button onClick={()=>setPoForm({...poForm,items:(poForm.items||[]).filter((_,i)=>i!==idx)})} style={{background:"none",border:"none",color:C.muted,cursor:"pointer",fontSize:14}}>×</button>
+                      </div>
+                    ))}
+                    <div style={{borderTop:`1px solid ${C.border}`,marginTop:8,paddingTop:8,display:"flex",justifyContent:"flex-end"}}>
+                      <span style={{fontSize:13,fontWeight:800,color:C.text}}>Order Total: {fmt((poForm.items||[]).reduce((s,i)=>s+Number(i.qty||0)*Number(i.unitPrice||0),0))}</span>
+                    </div>
+                  </div>
+                )}
+                <div style={{padding:"12px 14px"}}>
+                  <div style={{fontSize:11,color:C.muted,marginBottom:8,fontWeight:600}}>Add line item:</div>
+                  <div style={{display:"flex",gap:8,alignItems:"flex-end",flexWrap:"wrap"}}>
+                    <div style={{flex:3}}><input style={{...inp.style,fontSize:12}} id="po_desc" placeholder="Description / Part Name" defaultValue=""/></div>
+                    <div style={{flex:1}}><input type="number" id="po_qty" min="1" defaultValue="1" style={{...inp.style,fontSize:12}} placeholder="Qty"/></div>
+                    <div style={{flex:1}}><input style={{...inp.style,fontSize:12}} id="po_unit" defaultValue="each" placeholder="Unit"/></div>
+                    <div style={{flex:1}}><input type="number" id="po_price" style={{...inp.style,fontSize:12}} placeholder="Unit Price (R)"/></div>
+                    <Btn size="sm" variant="outline" onClick={()=>{
+                      const desc=document.getElementById("po_desc");
+                      const qty=document.getElementById("po_qty");
+                      const unit=document.getElementById("po_unit");
+                      const price=document.getElementById("po_price");
+                      if(!desc.value.trim()){toast("Enter a description.","error");return;}
+                      setPoForm({...poForm,items:[...(poForm.items||[]),{description:desc.value.trim(),qty:Number(qty.value||1),unit:unit.value||"each",unitPrice:price.value?Number(price.value):0}]});
+                      desc.value=""; qty.value="1"; unit.value="each"; price.value="";
+                    }}>＋ Add</Btn>
+                  </div>
+                </div>
+              </div>
+
+              <Field label="Notes / Special Instructions">
+                <input {...inp} value={poForm.notes} onChange={e=>setPoForm({...poForm,notes:e.target.value})} placeholder="Delivery instructions, quality specs, warranty requirements..."/>
+              </Field>
+
+              <div style={{display:"flex",gap:10,marginTop:20,paddingTop:16,borderTop:`1px solid ${C.border}`}}>
+                <Btn style={{flex:1,justifyContent:"center"}} onClick={()=>{
+                  if(!poForm.supplierId||!poForm.poNumber){toast("Select a supplier and set a PO number.","error");return;}
+                  if((poForm.items||[]).length===0){toast("Add at least one line item.","error");return;}
+                  if(poForm.id){
+                    update("mcw_pos",setPurchaseOrders,purchaseOrders,poForm.id,poForm);
+                    toast("Purchase order updated.");
+                  } else {
+                    add("mcw_pos",setPurchaseOrders,purchaseOrders,poForm);
+                    toast(`${poForm.poNumber} raised successfully.`);
+                  }
+                  setPoModal(null);
+                }}>{poForm.id?"Save Changes":"Raise Purchase Order"}</Btn>
+                <Btn variant="ghost" onClick={()=>setPoModal(null)}>Cancel</Btn>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* VIEW / PRINT MODAL */}
+      {poView&&(()=>{
+        const supplier=suppliers.find(s=>s.id===poView.supplierId);
+        const total=getPoTotal(poView);
+        const project=projects.find(p=>p.id===poView.projectId);
+        return (
+          <div style={{position:"fixed",inset:0,background:"rgba(17,19,24,0.75)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:9999,padding:20,backdropFilter:"blur(4px)"}}>
+            <div style={{background:C.white,borderRadius:14,width:"100%",maxWidth:780,maxHeight:"94vh",overflowY:"auto",boxShadow:"0 32px 100px rgba(0,0,0,0.4)"}}>
+              {/* PO DARK HEADER */}
+              <div style={{background:C.dark,padding:"24px 32px",borderRadius:"14px 14px 0 0"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                  <div>
+                    <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:8}}>
+                      <div style={{background:C.red,borderRadius:6,padding:"4px 12px"}}>
+                        <span style={{color:"white",fontSize:11,fontWeight:900,fontFamily:"monospace",letterSpacing:1}}>{poView.poNumber}</span>
+                      </div>
+                      <Pill text={poView.status} color={statusColor(poView.status)}/>
+                      <Pill text={poView.type} color="blue"/>
+                    </div>
+                    <div style={{fontSize:22,fontWeight:800,color:"white",fontFamily:"'Barlow Condensed',sans-serif"}}>{supplier?.name||"Unknown Supplier"}</div>
+                    <div style={{fontSize:12,color:"#6B7280",marginTop:2}}>
+                      {supplier?.contactPerson&&`${supplier.contactPerson}`}{supplier?.phone?` · ${supplier.phone}`:""}{supplier?.email?` · ${supplier.email}`:""}
+                    </div>
+                  </div>
+                  <div style={{display:"flex",gap:8}}>
+                    <button onClick={()=>window.print()} style={{background:"rgba(255,255,255,0.1)",border:"1px solid rgba(255,255,255,0.15)",borderRadius:6,padding:"7px 14px",color:"white",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>⬒ Print PO</button>
+                    <button onClick={()=>setPoView(null)} style={{background:"none",border:"none",color:"#6B7280",fontSize:18,cursor:"pointer"}}>✕</button>
+                  </div>
+                </div>
+              </div>
+
+              <div style={{padding:"24px 32px"}}>
+                {/* META GRID */}
+                <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:20}}>
+                  {[
+                    {l:"Date Raised",v:poView.dateCreated},
+                    {l:"Date Required",v:poView.dateRequired||"Not specified"},
+                    {l:"Payment Terms",v:poView.terms||"—"},
+                    {l:"Approved By",v:poView.approvedBy||"Pending approval"},
+                    {l:"Invoice / Ref No.",v:poView.invoiceNumber||"Not received yet"},
+                    {l:"Date Received",v:poView.receivedDate||"Not received"},
+                    {l:"Delivery Address",v:poView.deliveryAddress||"Not specified"},
+                    {l:"Project Allocation",v:project?.name||"Not allocated"},
+                    {l:"Notes",v:poView.notes||"None"},
+                  ].map(item=>(
+                    <div key={item.l} style={{background:C.surface,borderRadius:7,padding:"10px 12px"}}>
+                      <div style={{fontSize:9,color:C.muted,textTransform:"uppercase",letterSpacing:0.5,marginBottom:3}}>{item.l}</div>
+                      <div style={{fontSize:12,fontWeight:600,color:C.text}}>{item.v}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* LINE ITEMS */}
+                <div style={{marginBottom:20}}>
+                  <div style={{fontSize:11,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:0.8,marginBottom:10}}>Line Items</div>
+                  <div style={{border:`1px solid ${C.border}`,borderRadius:8,overflow:"hidden"}}>
+                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                      <thead>
+                        <tr style={{background:C.surface}}>
+                          {["#","Description","Qty","Unit","Unit Price","Line Total"].map(h=>(
+                            <th key={h} style={{padding:"9px 12px",textAlign:"left",color:C.muted,fontWeight:700,fontSize:10,textTransform:"uppercase",borderBottom:`1px solid ${C.border}`}}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(poView.items||[]).map((item,i)=>(
+                          <tr key={i} style={{background:i%2===0?C.white:C.surface,borderBottom:`1px solid ${C.border}`}}>
+                            <td style={{padding:"9px 12px",color:C.muted}}>{i+1}</td>
+                            <td style={{padding:"9px 12px",fontWeight:600}}>{item.description}</td>
+                            <td style={{padding:"9px 12px",fontWeight:700,color:C.info}}>{item.qty}</td>
+                            <td style={{padding:"9px 12px",color:C.muted}}>{item.unit||"each"}</td>
+                            <td style={{padding:"9px 12px"}}>{item.unitPrice?fmt(item.unitPrice):"—"}</td>
+                            <td style={{padding:"9px 12px",fontWeight:700}}>{item.unitPrice?fmt(Number(item.qty)*Number(item.unitPrice)):"—"}</td>
+                          </tr>
+                        ))}
+                        <tr style={{background:C.dark}}>
+                          <td colSpan={5} style={{padding:"10px 12px",fontWeight:800,color:"white",fontSize:11,textTransform:"uppercase",letterSpacing:0.5}}>Order Total (excl. VAT)</td>
+                          <td style={{padding:"10px 12px",fontWeight:800,color:"#93C5FD",fontFamily:"'Barlow Condensed',sans-serif",fontSize:17}}>{fmt(total)}</td>
+                        </tr>
+                        <tr style={{background:"#0F1117"}}>
+                          <td colSpan={5} style={{padding:"8px 12px",fontWeight:700,color:"#6B7280",fontSize:11}}>VAT @ 15%</td>
+                          <td style={{padding:"8px 12px",fontWeight:700,color:"#6B7280",fontSize:13,fontFamily:"'Barlow Condensed',sans-serif"}}>{fmt(total*0.15)}</td>
+                        </tr>
+                        <tr style={{background:"#0F1117"}}>
+                          <td colSpan={5} style={{padding:"8px 12px",fontWeight:800,color:"white",fontSize:11,textTransform:"uppercase"}}>Total Incl. VAT</td>
+                          <td style={{padding:"8px 12px",fontWeight:900,color:"#FDE68A",fontSize:17,fontFamily:"'Barlow Condensed',sans-serif"}}>{fmt(total*1.15)}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* SIGNATURES */}
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:16,marginTop:24,paddingTop:20,borderTop:`2px solid ${C.border}`}}>
+                  {["Requested By","Authorised By (Mapitsi)","Supplier Acknowledgement"].map(role=>(
+                    <div key={role} style={{textAlign:"center"}}>
+                      <div style={{height:50,borderBottom:`1px solid ${C.text}`,marginBottom:6}}/>
+                      <div style={{fontSize:10,color:C.muted,fontWeight:600}}>{role}</div>
+                      <div style={{fontSize:9,color:C.mutedLt,marginTop:2}}>Signature & Date</div>
+                    </div>
+                  ))}
+                </div>
+
+                <div style={{marginTop:16,display:"flex",gap:10,justifyContent:"flex-end"}}>
+                  {can(currentUser,"canEdit")&&!["Fully Received","Cancelled"].includes(poView.status)&&(
+                    <Btn variant="outline" size="sm" onClick={()=>{setPoForm({...dPO,...poView});setPoView(null);setPoModal("form");}}>Edit PO</Btn>
+                  )}
+                  <Btn variant="ghost" size="sm" onClick={()=>setPoView(null)}>Close</Btn>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+    </div>
+  );
+}
+
 function JobCardsTab({ assets, jobCards, setJobCards, spares, setSpares, maint, setMaint, suppliers, employees, projects, siteNames, currentUser, persist, add, update, del, logAudit, toast, can, fmt, today, C, inp, Field, Row2, Btn, Card, Tbl, TR, Empty, KPI, Pill, PageTitle, depreciate }) {
   const JOB_CARD_STATUS_LOCAL = ["Open","Assigned","In Progress","Awaiting Parts","Complete","Invoiced","Cancelled"];
   const JOB_CARD_PRIORITY_LOCAL = ["Critical","High","Medium","Low"];
@@ -1717,27 +2167,16 @@ Portfolio: Cost R${totalCost.toLocaleString()} | Book Value R${Math.round(totalB
     setAiMessages(prev => [...prev, userMsg]);
     setAiLoading(true);
     try {
-      const API_KEY = import.meta.env.VITE_ANTHROPIC_API_KEY;
-
-      const history = [...aiMessages, userMsg]
-      .filter(m => m.role === "user" || m.role === "assistant")
-      .slice(-10)
-      .map(m => ({ role: m.role, content: m.content }));
-      
+      const history = [...aiMessages, userMsg].filter(m=>m.role==="user"||m.role==="assistant").slice(-10).map(m=>({role:m.role,content:m.content}));
       const response = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": API_KEY,
-          "anthropic-version": "2023-06-01",
-          "anthropic-dangerous-direct-browser-access": "true"
+        method:"POST",
+        headers:{
+          "Content-Type":"application/json",
+          "x-api-key":"YOUR_ANTHROPIC_API_KEY_HERE",
+          "anthropic-version":"2023-06-01",
+          "anthropic-dangerous-direct-browser-access":"true"
         },
-        body: JSON.stringify({
-          model: "claude-haiku-4-5-20251001",
-          max_tokens: 1000,
-          system: buildFleetContext(),
-          messages: history
-        }),
+        body:JSON.stringify({ model:"claude-haiku-4-5-20251001", max_tokens:1000, system:buildFleetContext(), messages:history }),
       });
       const data = await response.json();
       const replyText = data.content?.find(b=>b.type==="text")?.text || "I couldn't generate a response. Please try again.";
@@ -1996,6 +2435,7 @@ export default function App() {
       ["compliance",  setCompliance],
       ["preops",      setPreops],
       ["jobcards",    setJobCards],
+      ["pos",         setPurchaseOrders],
     ];
     const unsubscribers = realTimeCollections.map(([name, setter]) => {
       return onSnapshot(collection(db, name), (snapshot) => {
@@ -2059,6 +2499,7 @@ export default function App() {
       ["contractors", setContractors],
       ["transfers",   setTransfers],
       ["jobcards",    setJobCards],
+      ["pos",         setPurchaseOrders],
     ];
 
     for (const [name, setter] of collections) {
@@ -2320,6 +2761,7 @@ export default function App() {
   };
   const [transF, setTransF] = useState(dTrans);
   const [jobCards, setJobCards] = useState([]);
+  const [purchaseOrders, setPurchaseOrders] = useState([]);
   const dCon = {
     name: "",
     tradingName: "",
@@ -3020,1070 +3462,614 @@ export default function App() {
     try { localStorage.removeItem("mcw_session"); } catch {}
     try { await signOut(auth); } catch {}
   };
-  const exportExcel = () => {
-    const wb = XLSX.utils.book_new();
+  const exportExcel = async () => {
+    toast("Building report — please wait...", "success");
+    try {
+      if (!window.ExcelJS) {
+        await new Promise((resolve, reject) => {
+          const s = document.createElement("script");
+          s.src = "https://cdn.jsdelivr.net/npm/exceljs@4.3.0/dist/exceljs.min.js";
+          s.onload = resolve; s.onerror = reject;
+          document.head.appendChild(s);
+        });
+      }
+      const XJS = window.ExcelJS;
+      const wb = new XJS.Workbook();
+      wb.creator = company.name || "Mapitsi Civil Works";
+      wb.created = new Date();
 
-    // ── COVER SHEET ──
-    const coverAoa = [
-      ["MAPITSI CIVIL WORKS"],
-      ["Asset Management System — Management Report"],
-      [""],
-      ["Report Period:", monthLabel(month)],
-      [
-        "Generated On:",
-        new Date().toLocaleDateString("en-ZA", {
-          day: "numeric",
-          month: "long",
-          year: "numeric",
-        }) +
-          "  " +
-          new Date().toLocaleTimeString("en-ZA", {
-            hour: "2-digit",
-            minute: "2-digit",
-          }),
-      ],
-      ["Prepared By:", currentUser?.name || "System"],
-      ["Role:", currentUser ? ROLES[currentUser.role] : ""],
-      ["Classification:", "CONFIDENTIAL — For Internal Use Only"],
-      [""],
-      ["━━━ PORTFOLIO SUMMARY ━━━"],
-      ["Total Assets on Register:", assets.length],
-      ["Total Acquisition Cost (R):", totalCost],
-      ["Net Book Value (R):", totalBook],
-      ["Accumulated Depreciation (R):", totalCost - totalBook],
-      ["Maintenance Cost — " + monthLabel(month) + "(R):", rMC],
-      ["Fuel Cost — " + monthLabel(month) + " (R):", rFC],
-      ["Total Operating Cost (R):", rMC + rFC],
-      ["Labour Hours:", rH + " hrs"],
-      [""],
-      ["━━━ REPORT CONTENTS ━━━"],
-      ["Sheet", "Description"],
-      [
-        "Asset Register",
-        "All registered assets with purchase cost, depreciation rate, accumulated depreciation and net book value",
-      ],
-      [
-        "Depreciation",
-        "Full straight-line depreciation schedule per asset with health status",
-      ],
-      [
-        "Maintenance",
-        "Maintenance and service records for the selected reporting period",
-      ],
-      [
-        "Fuel & Usage",
-        "Fuel consumption, litres, cost per litre and odometer readings",
-      ],
-      [
-        "Timesheets",
-        "Labour hours by employee, site and task for the selected period",
-      ],
-      [
-        "Summary",
-        "Key financial and operational metrics for the selected period",
-      ],
-      [
-        "Asset Conditions",
-        "Formal condition assessments with ratings and action items",
-      ],
-      [
-        "Incidents",
-        "Breakdown and incident log with downtime and repair costs",
-      ],
-      [
-        "Budget Tracker",
-        "Monthly budgets vs actual spend by category and site",
-      ],
-      [
-        "Equipment Hire",
-        "Hired plant register with daily rates and total costs",
-      ],
-      [
-        "Disposals",
-        "Asset disposal and write-off records with book values at disposal",
-      ],
-      ["Suppliers", "Verified supplier and vendor register"],
-      [
-        "Parts & Spares",
-        "Spares inventory with stock levels and reorder alerts",
-      ],
-      ["Warranties", "Asset warranty register with expiry tracking"],
-      [
-        "SARS 11(e)",
-        "SARS Section 11(e) wear-and-tear allowances vs straight-line",
-      ],
-      ["Leave Records", "Employee leave and absence register"],
-      ["Overtime", "Approved overtime records by employee"],
-      [
-        "Asset Assignments",
-        "Operator-asset assignment history and accountability trail",
-      ],
-      [
-        "Audit Trail",
-        "Complete system activity log — all additions, changes and deletions",
-      ],
-    ];
-    const coverWs = XLSX.utils.aoa_to_sheet(coverAoa);
-    coverWs["!cols"] = [{ wch: 50 }, { wch: 85 }];
-    coverWs["!merges"] = [
-      { s: { r: 0, c: 0 }, e: { r: 0, c: 1 } },
-      { s: { r: 1, c: 0 }, e: { r: 1, c: 1 } },
-      { s: { r: 9, c: 0 }, e: { r: 9, c: 1 } },
-      { s: { r: 19, c: 0 }, e: { r: 19, c: 1 } },
-    ];
-    coverWs["!rows"] = [{ hpt: 32 }];
-    [11, 12, 13, 14, 15, 16].forEach((rowIdx) => {
-      const addr = XLSX.utils.encode_cell({ r: rowIdx, c: 1 });
-      if (coverWs[addr] && coverWs[addr].t === "n")
-        coverWs[addr].z = "R #,##0.00";
-    });
-    XLSX.utils.book_append_sheet(wb, coverWs, "COVER");
+      // ── THEME ──────────────────────────────────────────────────────────
+      const RED="FF8C1414", DARK="FF111318", WHITE="FFFFFFFF";
+      const SURFACE="FFF5F6FA", BORDERC="FFE4E6EE";
+      const SUCCESS_C="FF059669", WARN_C="FFD97706", INFO_C="FF1D4ED8";
+      const MONEY="R #,##0.00", PCT="0.0%", INT="#,##0", HRS="0.0";
 
-    // ── ASSET REGISTER ──
-    const assetRows = assets.map((a) => {
-      const d = depreciate(a);
-      const latestCond = [...conditions]
-        .filter((c) => c.assetId === a.id)
-        .sort((x, y) => (y.assessmentDate > x.assessmentDate ? 1 : -1))[0];
-      return {
-        "Asset Name": a.name,
-        Category: a.category,
-        "Serial / Reg No": a.serialNumber || "",
-        "Purchase Date": a.purchaseDate,
-        "Purchase Cost (R)": Number(a.purchaseCost || 0),
-        "Useful Life (yrs)": USEFUL_LIFE[a.category] || 5,
-        "Depr. Rate %/yr": parseFloat(d.rate.toFixed(1)),
-        "Annual Write-Off (R)": parseFloat(
-          (
-            Number(a.purchaseCost || 0) / (USEFUL_LIFE[a.category] || 5)
-          ).toFixed(2)
-        ),
-        "Acc. Depreciation (R)": parseFloat(d.accumulated.toFixed(2)),
-        "Net Book Value (R)": parseFloat(d.bookValue.toFixed(2)),
-        Location: a.location,
-        Status: a.status,
-        Condition: latestCond?.rating || "Not Assessed",
-        "Assigned To": a.assignedTo || "",
+      const f = {
+        hdr:   { name:"Calibri", size:10, bold:true,  color:{argb:WHITE} },
+        data:  { name:"Calibri", size:10,              color:{argb:"FF1A1F2E"} },
+        bold:  { name:"Calibri", size:10, bold:true,  color:{argb:"FF1A1F2E"} },
+        total: { name:"Calibri", size:11, bold:true,  color:{argb:WHITE} },
+        muted: { name:"Calibri", size:10,              color:{argb:"FF6B7280"} },
+        title: { name:"Calibri", size:18, bold:true,  color:{argb:WHITE} },
+        sub:   { name:"Calibri", size:12,              color:{argb:"FFB0B8C8"} },
+        kpiv:  { name:"Calibri", size:16, bold:true,  color:{argb:"FF1A1F2E"} },
       };
-    });
-    assetRows.push({
-      "Asset Name": "TOTALS — " + assets.length + " Assets",
-      Category: "",
-      "Serial / Reg No": "",
-      "Purchase Date": "",
-      "Purchase Cost (R)": totalCost,
-      "Useful Life (yrs)": "",
-      "Depr. Rate %/yr": "",
-      "Annual Write-Off (R)": assets.reduce(
-        (s, a) =>
-          s + Number(a.purchaseCost || 0) / (USEFUL_LIFE[a.category] || 5),
-        0
-      ),
-      "Acc. Depreciation (R)": totalCost - totalBook,
-      "Net Book Value (R)": totalBook,
-      Location: "",
-      Status: "",
-      Condition: "",
-      "Assigned To": "",
-    });
-    addSheet(
-      wb,
-      assetRows,
-      "Asset Register",
-      [30, 14, 18, 14, 18, 13, 13, 18, 20, 18, 14, 14, 16, 20]
-    );
-
-    // ── DEPRECIATION ──
-    const deprRows = assets.map((a) => {
-      const d = depreciate(a);
-      const pct =
-        Number(a.purchaseCost) > 0
-          ? (d.accumulated / Number(a.purchaseCost)) * 100
-          : 0;
-      return {
-        "Asset Name": a.name,
-        Category: a.category,
-        "Purchase Date": a.purchaseDate,
-        "Purchase Cost (R)": Number(a.purchaseCost || 0),
-        "Useful Life (yrs)": USEFUL_LIFE[a.category] || 5,
-        "Rate / Year %": parseFloat(d.rate.toFixed(1)),
-        "Years Elapsed": parseFloat(d.years.toFixed(1)),
-        "Annual Write-Off (R)": parseFloat(
-          (
-            Number(a.purchaseCost || 0) / (USEFUL_LIFE[a.category] || 5)
-          ).toFixed(2)
-        ),
-        "Acc. Depreciation (R)": parseFloat(d.accumulated.toFixed(2)),
-        "Net Book Value (R)": parseFloat(d.bookValue.toFixed(2)),
-        "% Depreciated": parseFloat(pct.toFixed(1)),
-        "Health Status":
-          d.bookValue <= 0
-            ? "Fully Depreciated"
-            : pct > 75
-            ? "Near End of Life"
-            : pct > 50
-            ? "Mid-Life"
-            : "Good",
+      const fill = {
+        dark:    { type:"pattern", pattern:"solid", fgColor:{argb:DARK} },
+        red:     { type:"pattern", pattern:"solid", fgColor:{argb:RED} },
+        surf:    { type:"pattern", pattern:"solid", fgColor:{argb:SURFACE} },
+        white:   { type:"pattern", pattern:"solid", fgColor:{argb:WHITE} },
+        success: { type:"pattern", pattern:"solid", fgColor:{argb:"FFD1FAE5"} },
+        warn:    { type:"pattern", pattern:"solid", fgColor:{argb:"FFFEF3C7"} },
+        danger:  { type:"pattern", pattern:"solid", fgColor:{argb:"FFFEE2E2"} },
+        infoBg:  { type:"pattern", pattern:"solid", fgColor:{argb:"FFEFF6FF"} },
+        purple:  { type:"pattern", pattern:"solid", fgColor:{argb:"FFF5F3FF"} },
       };
-    });
-    deprRows.push({
-      "Asset Name": "PORTFOLIO TOTAL",
-      Category: "",
-      "Purchase Date": "",
-      "Purchase Cost (R)": totalCost,
-      "Useful Life (yrs)": "",
-      "Rate / Year %": "",
-      "Years Elapsed": "",
-      "Annual Write-Off (R)": assets.reduce(
-        (s, a) =>
-          s + Number(a.purchaseCost || 0) / (USEFUL_LIFE[a.category] || 5),
-        0
-      ),
-      "Acc. Depreciation (R)": totalCost - totalBook,
-      "Net Book Value (R)": totalBook,
-      "% Depreciated":
-        totalCost > 0
-          ? parseFloat((((totalCost - totalBook) / totalCost) * 100).toFixed(1))
-          : 0,
-      "Health Status": "",
-    });
-    addSheet(
-      wb,
-      deprRows,
-      "Depreciation",
-      [30, 14, 14, 18, 13, 13, 13, 18, 20, 18, 13, 18]
-    );
+      const thin = { top:{style:"thin",color:{argb:BORDERC}}, left:{style:"thin",color:{argb:BORDERC}}, bottom:{style:"thin",color:{argb:BORDERC}}, right:{style:"thin",color:{argb:BORDERC}} };
+      const medBot = { ...thin, bottom:{style:"medium",color:{argb:DARK}} };
 
-    // ── MAINTENANCE ──
-    const maintRows = rM.map((m) => {
-      const asset = assets.find((a) => a.id === m.assetId);
-      const project = projects.find((p) => p.id === m.projectId);
-      return {
-        "Asset Name": asset?.name || "—",
-        Category: asset?.category || "",
-        Date: m.date,
-        Type: m.type,
-        Description: m.description || "",
-        "Cost (R)": Number(m.cost || 0),
-        "Performed By": m.performedBy || "",
-        "Project Allocated": project?.name || "",
-        "Next Due Date": m.nextDueDate || "",
+      // ── HELPERS ────────────────────────────────────────────────────────
+      const freeze = (ws, widths) => {
+        ws.views = [{ state:"frozen", xSplit:0, ySplit:2, activeCell:"A3" }];
+        ws.columns = widths.map(w => ({ width:w }));
       };
-    });
-    if (maintRows.length)
-      maintRows.push({
-        "Asset Name": "TOTAL MAINTENANCE COST",
-        Category: "",
-        Date: "",
-        Type: "",
-        Description: "",
-        "Cost (R)": rMC,
-        "Performed By": "",
-        "Project Allocated": "",
-        "Next Due Date": "",
+
+      const addBanner = (ws, title, sub, numCols) => {
+        const r1 = ws.addRow([title]);
+        ws.mergeCells(r1.number, 1, r1.number, numCols);
+        r1.height = 40;
+        const c1 = r1.getCell(1);
+        c1.font = f.title; c1.fill = fill.dark; c1.alignment = { vertical:"middle", horizontal:"center" };
+
+        const r2 = ws.addRow([sub]);
+        ws.mergeCells(r2.number, 1, r2.number, numCols);
+        r2.height = 22;
+        const c2 = r2.getCell(1);
+        c2.font = f.sub; c2.fill = fill.dark; c2.alignment = { vertical:"middle", horizontal:"center" };
+      };
+
+      const addHdr = (ws, cols) => {
+        const row = ws.addRow(cols);
+        row.height = 24;
+        row.eachCell({ includeEmpty:true }, cell => {
+          cell.font = f.hdr; cell.fill = fill.dark;
+          cell.alignment = { vertical:"middle", horizontal:"center", wrapText:true };
+          cell.border = thin;
+        });
+        return row;
+      };
+
+      const addRow = (ws, vals, altFill, opts={}) => {
+        const row = ws.addRow(vals);
+        row.height = opts.h || 18;
+        row.eachCell({ includeEmpty:true }, (cell, ci) => {
+          const ci0 = ci - 1;
+          cell.fill = opts.fill || (altFill ? fill.surf : fill.white);
+          cell.border = thin;
+          cell.font = opts.font || f.data;
+          cell.alignment = { vertical:"middle", horizontal: opts.align?.[ci0] || "left", wrapText:false };
+          if (opts.fmt?.[ci0]) cell.numFmt = opts.fmt[ci0];
+        });
+        return row;
+      };
+
+      const addTotal = (ws, vals, opts={}) => {
+        const row = ws.addRow(vals);
+        row.height = 22;
+        row.eachCell({ includeEmpty:true }, (cell, ci) => {
+          const ci0 = ci - 1;
+          cell.fill = opts.fill || fill.dark;
+          cell.font = opts.font || f.total;
+          cell.border = thin;
+          cell.alignment = { vertical:"middle", horizontal: opts.align?.[ci0] || "right" };
+          if (opts.fmt?.[ci0]) cell.numFmt = opts.fmt[ci0];
+        });
+        return row;
+      };
+
+      const addSection = (ws, title, numCols, color=RED) => {
+        ws.addRow([]);
+        const row = ws.addRow([title]);
+        ws.mergeCells(row.number, 1, row.number, numCols);
+        row.height = 20;
+        const cell = row.getCell(1);
+        cell.font = { name:"Calibri", size:10, bold:true, color:{argb:WHITE} };
+        cell.fill = { type:"pattern", pattern:"solid", fgColor:{argb:color} };
+        cell.alignment = { vertical:"middle", horizontal:"left", indent:1 };
+        cell.border = thin;
+        return row;
+      };
+
+      const poItemTotal = po => (po.items||[]).reduce((s,i)=>s+Number(i.qty||0)*Number(i.unitPrice||0),0);
+
+      // ── 1. COVER ───────────────────────────────────────────────────────
+      const cov = wb.addWorksheet("Cover", { properties:{ tabColor:{argb:RED} } });
+      cov.views = [{ showGridLines:false }];
+      cov.columns = [{ width:36 },{ width:36 }];
+
+      // Big banner
+      const bannerR = cov.addRow([`${(company.name||"MAPITSI CIVIL WORKS").toUpperCase()}`, ""]);
+      cov.mergeCells(bannerR.number, 1, bannerR.number, 2);
+      bannerR.height = 50;
+      const bCell = bannerR.getCell(1);
+      bCell.font = { name:"Calibri", size:24, bold:true, color:{argb:WHITE} };
+      bCell.fill = fill.dark;
+      bCell.alignment = { vertical:"middle", horizontal:"center" };
+
+      const subR = cov.addRow([`Asset Management System — Management Report · ${monthLabel(month)}`, ""]);
+      cov.mergeCells(subR.number, 1, subR.number, 2);
+      subR.height = 26;
+      const sCell = subR.getCell(1);
+      sCell.font = { name:"Calibri", size:13, bold:false, color:{argb:"FFB0B8C8"} };
+      sCell.fill = fill.dark;
+      sCell.alignment = { vertical:"middle", horizontal:"center" };
+
+      const redBar = cov.addRow([company.tagline||"Every Good Development Starts With A Good Foundation", ""]);
+      cov.mergeCells(redBar.number, 1, redBar.number, 2);
+      redBar.height = 22;
+      const rCell = redBar.getCell(1);
+      rCell.font = { name:"Calibri", size:11, bold:false, color:{argb:WHITE} };
+      rCell.fill = fill.red;
+      rCell.alignment = { vertical:"middle", horizontal:"center" };
+
+      cov.addRow([]);
+
+      // Report meta
+      addSection(cov, "REPORT DETAILS", 2, DARK);
+      [
+        ["Report Period", monthLabel(month)],
+        ["Generated On", new Date().toLocaleDateString("en-ZA", {day:"numeric",month:"long",year:"numeric"})],
+        ["Prepared By", currentUser?.name || "System"],
+        ["Role", ROLES[currentUser?.role] || ""],
+        ["Company", company.name || "Mapitsi Civil Works"],
+        ["Reg. Number", company.regNumber || "Not captured"],
+        ["VAT Number", company.vatNumber || "Not captured"],
+        ["Classification", "CONFIDENTIAL — FOR INTERNAL USE ONLY"],
+      ].forEach(([k,v], i) => {
+        const r = cov.addRow([k, v]);
+        r.height = 20;
+        r.getCell(1).font = f.muted; r.getCell(1).fill = fill.surf;
+        r.getCell(2).font = { name:"Calibri",size:10,bold:true,color:{argb:DARK} };
+        r.getCell(2).fill = fill.white;
+        r.getCell(1).border = r.getCell(2).border = thin;
       });
-    addSheet(
-      wb,
-      maintRows,
-      "Maintenance",
-      [28, 14, 14, 16, 35, 16, 25, 25, 14]
-    );
 
-    // ── FUEL ──
-    const fuelRows = rF.map((f) => {
-      const asset = assets.find((a) => a.id === f.assetId);
-      const project = projects.find((p) => p.id === f.projectId);
-      return {
-        "Asset Name": asset?.name || "—",
-        Category: asset?.category || "",
-        Date: f.date,
-        Litres: Number(f.litres || 0),
-        "Cost (R)": Number(f.cost || 0),
-        "Cost per Litre (R)":
-          Number(f.litres) > 0
-            ? parseFloat((Number(f.cost) / Number(f.litres)).toFixed(2))
-            : 0,
-        "Odometer / Hours": f.odometer || "",
-        Site: f.site,
-        "Project Allocated": project?.name || "",
-      };
-    });
-    if (fuelRows.length) {
-      const totL = rF.reduce((s, f) => s + Number(f.litres || 0), 0);
-      fuelRows.push({
-        "Asset Name": "TOTALS",
-        Category: "",
-        Date: "",
-        Litres: totL,
-        "Cost (R)": rFC,
-        "Cost per Litre (R)":
-          totL > 0 ? parseFloat((rFC / totL).toFixed(2)) : 0,
-        "Odometer / Hours": "",
-        Site: "",
-        "Project Allocated": "",
+      // KPI summary
+      addSection(cov, "PORTFOLIO SUMMARY", 2, RED);
+      [
+        ["Total Assets on Register", assets.length, INT],
+        ["Active Assets", assets.filter(a=>a.status==="Active").length, INT],
+        ["Total Acquisition Cost (R)", totalCost, MONEY],
+        ["Net Book Value (R)", totalBook, MONEY],
+        ["Accumulated Depreciation (R)", totalCost-totalBook, MONEY],
+        ["Maintenance Cost — "+monthLabel(month), rMC, MONEY],
+        ["Fuel Cost — "+monthLabel(month), rFC, MONEY],
+        ["Total Operating Cost (R)", rMC+rFC, MONEY],
+        ["Labour Hours This Period", rH, HRS],
+      ].forEach(([k,v,fmt_], i) => {
+        const r = cov.addRow([k, v]);
+        r.height = 20;
+        r.getCell(1).font = f.muted; r.getCell(1).fill = i%2===0?fill.surf:fill.white;
+        r.getCell(2).font = f.bold; r.getCell(2).fill = i%2===0?fill.surf:fill.white;
+        r.getCell(2).numFmt = fmt_;
+        r.getCell(2).alignment = { horizontal:"right" };
+        r.getCell(1).border = r.getCell(2).border = thin;
       });
-    }
-    addSheet(
-      wb,
-      fuelRows,
-      "Fuel & Usage",
-      [28, 14, 14, 12, 16, 16, 18, 14, 25]
-    );
 
-    // ── TIMESHEETS ──
-    const tsRows = rT.map((t) => ({
-      Employee: t.employeeName,
-      Date: t.date,
-      "Hours Worked": Number(t.hours || 0),
-      Site: t.site,
-      "Task / Role": t.task || "",
-      Notes: t.notes || "",
-    }));
-    if (tsRows.length)
-      tsRows.push({
-        Employee: "TOTAL HOURS",
-        Date: "",
-        "Hours Worked": rH,
-        Site: "",
-        "Task / Role": "",
-        Notes: "",
+      // Alert summary
+      addSection(cov, "ALERT SUMMARY", 2, DARK);
+      [
+        ["Critical Alerts", allAlerts.filter(a=>a.severity==="critical").length, true],
+        ["Warnings", allAlerts.filter(a=>a.severity==="warning").length, true],
+        ["Expired Compliance Docs", compliance.filter(c=>c.expiryDate&&c.expiryDate<today()).length, true],
+        ["Open Incidents", openIncidents, true],
+        ["Spares Out of Stock", sparesOut, false],
+        ["Budgets Overspent", budgetsOverspent, false],
+      ].forEach(([k,v,alert], i) => {
+        const r = cov.addRow([k, v]);
+        r.height = 20;
+        const isRed = alert && v > 0;
+        r.getCell(1).font = isRed ? { name:"Calibri",size:10,bold:true,color:{argb:RED} } : f.muted;
+        r.getCell(2).font = isRed ? { name:"Calibri",size:11,bold:true,color:{argb:RED} } : f.bold;
+        const rowFill = isRed ? fill.danger : i%2===0?fill.surf:fill.white;
+        r.getCell(1).fill = r.getCell(2).fill = rowFill;
+        r.getCell(2).numFmt = INT;
+        r.getCell(2).alignment = { horizontal:"right" };
+        r.getCell(1).border = r.getCell(2).border = thin;
       });
-    addSheet(wb, tsRows, "Timesheets", [25, 14, 14, 14, 25, 30]);
 
-    // ── SUMMARY ──
-    const summaryRows = [
-      { Metric: "━━━ ASSET PORTFOLIO ━━━", Value: "" },
-      { Metric: "Total Assets on Register", Value: assets.length },
-      {
-        Metric: "Active Assets",
-        Value: assets.filter((a) => a.status === "Active").length,
-      },
-      { Metric: "Total Acquisition Cost (R)", Value: totalCost },
-      { Metric: "Net Book Value (R)", Value: totalBook },
-      { Metric: "Accumulated Depreciation (R)", Value: totalCost - totalBook },
-      {
-        Metric: "Portfolio Depreciation %",
-        Value:
-          totalCost > 0
-            ? parseFloat(
-                (((totalCost - totalBook) / totalCost) * 100).toFixed(1)
-              )
-            : 0,
-      },
-      { Metric: "Assets Disposed", Value: disposals.length },
-      {
-        Metric: "Assets Not Condition Assessed",
-        Value: assets.filter((a) => !conditions.find((c) => c.assetId === a.id))
-          .length,
-      },
-      { Metric: "", Value: "" },
-      {
-        Metric: "━━━ OPERATIONAL — " + monthLabel(month).toUpperCase() + " ━━━",
-        Value: "",
-      },
-      { Metric: "Maintenance Records This Period", Value: rM.length },
-      { Metric: "Total Maintenance Cost (R)", Value: rMC },
-      { Metric: "Fuel Records This Period", Value: rF.length },
-      { Metric: "Total Fuel Cost (R)", Value: rFC },
-      { Metric: "Total Operating Cost (R)", Value: rMC + rFC },
-      { Metric: "Labour Hours This Period", Value: rH },
-      {
-        Metric: "Employees Who Logged Hours",
-        Value: new Set(rT.map((t) => t.employeeName)).size,
-      },
-      { Metric: "", Value: "" },
-      { Metric: "━━━ COMPLIANCE & RISK ━━━", Value: "" },
-      { Metric: "Total Compliance Documents", Value: compliance.length },
-      {
-        Metric: "Expired Documents",
-        Value: compliance.filter((c) => c.expiryDate && c.expiryDate < today())
-          .length,
-      },
-      { Metric: "Expiring within 30 Days", Value: expiringSoon.length },
-      { Metric: "Open / Unresolved Incidents", Value: openIncidents },
-      {
-        Metric: "Total Incident Downtime (hrs)",
-        Value: incidents.reduce((s, i) => s + Number(i.downtimeHours || 0), 0),
-      },
-      {
-        Metric: "Total Incident Repair Cost (R)",
-        Value: incidents.reduce((s, i) => s + Number(i.repairCost || 0), 0),
-      },
-      { Metric: "Poor Condition Assets", Value: poorConditionAssets },
-      { Metric: "Schedule Alerts", Value: scheduleAlerts.length },
-      { Metric: "", Value: "" },
-      { Metric: "━━━ HR & LABOUR ━━━", Value: "" },
-      { Metric: "Total Employees on Register", Value: employees.length },
-      {
-        Metric: "Active Employees",
-        Value: employees.filter((e) => e.status === "Active").length,
-      },
-      { Metric: "Employees Currently on Leave", Value: employeesOnLeave },
-      { Metric: "Total Overtime Hours (All Time)", Value: totalOvertimeHours },
-      {
-        Metric: "Active Asset Assignments",
-        Value: assignments.filter((a) => !a.endDate).length,
-      },
-      { Metric: "", Value: "" },
-      { Metric: "━━━ FINANCIAL ━━━", Value: "" },
-      {
-        Metric: "Active Projects",
-        Value: projects.filter((p) => p.status === "Active").length,
-      },
-      {
-        Metric: "Total Active Contract Value (R)",
-        Value: projects
-          .filter((p) => p.status === "Active")
-          .reduce((s, p) => s + Number(p.contractValue || 0), 0),
-      },
-      {
-        Metric: "Active Daily Hire Cost (R)",
-        Value: hires
-          .filter((h) => h.status === "Active Hire")
-          .reduce((s, h) => s + Number(h.dailyRate || 0), 0),
-      },
-      {
-        Metric: "Total Disposal Recovery (R)",
-        Value: disposals.reduce((s, d) => s + Number(d.disposalValue || 0), 0),
-      },
-      {
-        Metric: "Spares Inventory Value (R)",
-        Value: spares.reduce(
-          (s, x) => s + Number(x.quantity || 0) * Number(x.unitCost || 0),
-          0
-        ),
-      },
-      { Metric: "Budget Lines Overspent", Value: budgetsOverspent },
-    ];
-    const summaryWs = XLSX.utils.json_to_sheet(summaryRows);
-    summaryWs["!cols"] = [{ wch: 50 }, { wch: 25 }];
-    summaryWs["!freeze"] = {
-      xSplit: 0,
-      ySplit: 1,
-      topLeftCell: "A2",
-      activePane: "bottomLeft",
-      state: "frozen",
-    };
-    Object.keys(summaryWs)
-      .filter((k) => !k.startsWith("!"))
-      .forEach((k) => {
-        if (summaryWs[k]?.t === "n") summaryWs[k].z = "R #,##0.00";
-      });
-    XLSX.utils.book_append_sheet(wb, summaryWs, "Summary");
+      // ── 2. ASSET REGISTER ──────────────────────────────────────────────
+      const asWs = wb.addWorksheet("Asset Register", { properties:{ tabColor:{argb:INFO_C} } });
+      freeze(asWs, [28,14,18,14,18,12,13,18,18,18,14,14,18]);
+      addBanner(asWs, "ASSET REGISTER", `${assets.length} Assets on Register · ${company.name||"Mapitsi Civil Works"} · ${new Date().toLocaleDateString("en-ZA")}`, 13);
+      addHdr(asWs, ["Asset Name","Category","Serial / Reg","Purchase Date","Purchase Cost (R)","Useful Life","Rate %/yr","Annual Write-Off (R)","Acc. Depreciation (R)","Net Book Value (R)","Location","Status","Condition"]);
 
-    // ── ASSET CONDITIONS ──
-    const condRowsEx = conditions.map((c) => {
-      const asset = assets.find((a) => a.id === c.assetId);
-      return {
-        "Asset Name": asset?.name || "—",
-        Category: asset?.category || "",
-        Rating: c.rating,
-        "Assessed By": c.assessedBy || "",
-        "Assessment Date": c.assessmentDate,
-        "Action Required": c.actionRequired || "None",
-        Notes: c.notes || "",
-      };
-    });
-    addSheet(wb, condRowsEx, "Asset Conditions", [28, 14, 20, 20, 16, 35, 35]);
-
-    // ── INCIDENTS ──
-    const incRowsEx = incidents.map((i) => {
-      const asset = assets.find((a) => a.id === i.assetId);
-      return {
-        "Asset Name": asset?.name || "—",
-        Category: asset?.category || "",
-        Date: i.date,
-        Type: i.type,
-        Description: i.description || "",
-        Operator: i.operatorName || "",
-        "Downtime (hrs)": Number(i.downtimeHours || 0),
-        "Repair Cost (R)": Number(i.repairCost || 0),
-        "Reported By": i.reportedBy || "",
-        Resolved: i.resolved,
-      };
-    });
-    if (incRowsEx.length)
-      incRowsEx.push({
-        "Asset Name": "TOTALS",
-        Category: "",
-        Date: "",
-        Type: "",
-        Description: "",
-        Operator: "",
-        "Downtime (hrs)": incidents.reduce(
-          (s, i) => s + Number(i.downtimeHours || 0),
-          0
-        ),
-        "Repair Cost (R)": incidents.reduce(
-          (s, i) => s + Number(i.repairCost || 0),
-          0
-        ),
-        "Reported By": "",
-        Resolved: "",
-      });
-    addSheet(
-      wb,
-      incRowsEx,
-      "Incidents",
-      [28, 14, 14, 18, 35, 20, 14, 16, 20, 12]
-    );
-
-    // ── BUDGET TRACKER ──
-    const budgetRowsEx = budgets.map((b) => {
-      const spent = getBudgetSpent(b);
-      const budget = Number(b.budgetAmount || 0);
-      return {
-        Month: monthLabel(b.month),
-        Category: b.category,
-        Site: b.site,
-        "Budget (R)": budget,
-        "Spent (R)": parseFloat(spent.toFixed(2)),
-        "Remaining (R)": parseFloat((budget - spent).toFixed(2)),
-        "Usage %":
-          budget > 0 ? parseFloat(((spent / budget) * 100).toFixed(1)) : 0,
-        Status:
-          spent > budget
-            ? "OVER BUDGET"
-            : spent / budget > 0.8
-            ? "Near Limit"
-            : "On Track",
-        Notes: b.notes || "",
-      };
-    });
-    addSheet(
-      wb,
-      budgetRowsEx,
-      "Budget Tracker",
-      [18, 20, 14, 16, 16, 16, 12, 14, 30]
-    );
-
-    // ── EQUIPMENT HIRE ──
-    const hireRowsEx = hires.map((h) => {
-      const project = projects.find((p) => p.id === h.projectId);
-      const days = h.actualReturnDate
-        ? Math.round(
-            (new Date(h.actualReturnDate) - new Date(h.startDate)) /
-              (1000 * 60 * 60 * 24)
-          )
-        : Math.round(
-            (new Date() - new Date(h.startDate)) / (1000 * 60 * 60 * 24)
-          );
-      return {
-        Equipment: h.assetDescription,
-        Category: h.category,
-        "Hire Company": h.hireCompany || "",
-        "Daily Rate (R)": Number(h.dailyRate || 0),
-        "Start Date": h.startDate,
-        "Expected Return": h.expectedReturnDate || "",
-        "Actual Return": h.actualReturnDate || "",
-        Days: Math.max(1, days),
-        "Total Cost (R)": Number(h.dailyRate || 0) * Math.max(1, days),
-        Project: project?.name || "",
-        Status: h.status,
-        Notes: h.notes || "",
-      };
-    });
-    if (hireRowsEx.length) {
-      const totHire = hires.reduce((s, h) => {
-        const d = h.actualReturnDate
-          ? Math.round(
-              (new Date(h.actualReturnDate) - new Date(h.startDate)) /
-                (1000 * 60 * 60 * 24)
-            )
-          : Math.round(
-              (new Date() - new Date(h.startDate)) / (1000 * 60 * 60 * 24)
-            );
-        return s + Number(h.dailyRate || 0) * Math.max(1, d);
-      }, 0);
-      hireRowsEx.push({
-        Equipment: "TOTAL HIRE COST",
-        Category: "",
-        "Hire Company": "",
-        "Daily Rate (R)": "",
-        "Start Date": "",
-        "Expected Return": "",
-        "Actual Return": "",
-        Days: "",
-        "Total Cost (R)": totHire,
-        Project: "",
-        Status: "",
-        Notes: "",
-      });
-    }
-    addSheet(
-      wb,
-      hireRowsEx,
-      "Equipment Hire",
-      [28, 14, 22, 16, 14, 16, 14, 8, 16, 22, 14, 30]
-    );
-
-    // ── DISPOSALS ──
-    const disposalRowsEx = disposals.map((d) => {
-      const asset = assets.find((a) => a.id === d.assetId);
-      const dep = asset ? depreciate(asset) : null;
-      return {
-        "Asset Name": asset?.name || "—",
-        Category: asset?.category || "",
-        "Disposal Date": d.disposalDate,
-        Method: d.method,
-        "Disposal Value (R)": Number(d.disposalValue || 0),
-        "Buyer / Party": d.buyerName || "",
-        "Buyer Contact": d.buyerContact || "",
-        "Original Cost (R)": asset ? Number(asset.purchaseCost || 0) : 0,
-        "Book Value at Disposal (R)": dep
-          ? parseFloat(dep.bookValue.toFixed(2))
-          : 0,
-        "Gain / (Loss) (R)": dep
-          ? parseFloat(
-              (Number(d.disposalValue || 0) - dep.bookValue).toFixed(2)
-            )
-          : 0,
-        Reason: d.reason || "",
-        Notes: d.notes || "",
-      };
-    });
-    addSheet(
-      wb,
-      disposalRowsEx,
-      "Disposals",
-      [28, 14, 14, 14, 18, 22, 18, 18, 22, 20, 30, 30]
-    );
-
-    // ── SUPPLIERS ──
-    const supRowsEx = suppliers.map((s) => ({
-      "Supplier Name": s.name,
-      Type: s.type,
-      "Contact Person": s.contactPerson || "",
-      Phone: s.phone || "",
-      Email: s.email || "",
-      "Physical Address": s.address || "",
-      Notes: s.notes || "",
-    }));
-    addSheet(wb, supRowsEx, "Suppliers", [28, 20, 20, 16, 28, 35, 35]);
-
-    // ── PARTS & SPARES ──
-    const sparesRowsEx = spares.map((s) => ({
-      "Part Name": s.partName,
-      "Part Number": s.partNumber || "",
-      Category: s.category,
-      Supplier: s.supplier || "",
-      "Qty in Stock": Number(s.quantity || 0),
-      "Min Stock Level": Number(s.minStockLevel || 0),
-      "Stock Alert":
-        Number(s.quantity || 0) === 0
-          ? "OUT OF STOCK"
-          : Number(s.quantity || 0) <= Number(s.minStockLevel || 0)
-          ? "LOW STOCK"
-          : "OK",
-      "Unit Cost (R)": Number(s.unitCost || 0),
-      "Total Value (R)": Number(s.quantity || 0) * Number(s.unitCost || 0),
-      Location: s.location,
-      Status: s.status,
-      Notes: s.notes || "",
-    }));
-    if (sparesRowsEx.length)
-      sparesRowsEx.push({
-        "Part Name": "TOTAL INVENTORY VALUE",
-        "Part Number": "",
-        Category: "",
-        Supplier: "",
-        "Qty in Stock": "",
-        "Min Stock Level": "",
-        "Stock Alert": "",
-        "Unit Cost (R)": "",
-        "Total Value (R)": spares.reduce(
-          (s, x) => s + Number(x.quantity || 0) * Number(x.unitCost || 0),
-          0
-        ),
-        Location: "",
-        Status: "",
-        Notes: "",
-      });
-    addSheet(
-      wb,
-      sparesRowsEx,
-      "Parts & Spares",
-      [28, 16, 16, 20, 12, 14, 14, 16, 16, 14, 12, 30]
-    );
-
-    // ── WARRANTIES ──
-    const warrantyRowsEx = warranties.map((w) => {
-      const asset = assets.find((a) => a.id === w.assetId);
-      const days = w.expiryDate
-        ? Math.round(
-            (new Date(w.expiryDate) - new Date()) / (1000 * 60 * 60 * 24)
-          )
-        : null;
-      return {
-        "Asset Name": asset?.name || "—",
-        Category: asset?.category || "",
-        "Supplier / Dealer": w.supplier || "",
-        "Warranty Reference": w.warrantyNumber || "",
-        "Start Date": w.startDate || "",
-        "Expiry Date": w.expiryDate || "",
-        "Days Remaining": days !== null ? days : "",
-        "Coverage Details": w.coverageDetails || "",
-        Status: days !== null && days < 0 ? "EXPIRED" : w.status,
-        Notes: w.notes || "",
-      };
-    });
-    addSheet(
-      wb,
-      warrantyRowsEx,
-      "Warranties",
-      [28, 14, 22, 22, 14, 14, 14, 40, 14, 30]
-    );
-
-    // ── SARS 11(e) ──
-    const sarsRowsEx = assets.map((a) => {
-      const sarsRate = SARS_RATES[a.category] || 20;
-      const slRate = (1 / (USEFUL_LIFE[a.category] || 5)) * 100;
-      const sarsAnnual = (Number(a.purchaseCost || 0) * sarsRate) / 100;
-      const slAnnual =
-        Number(a.purchaseCost || 0) / (USEFUL_LIFE[a.category] || 5);
-      return {
-        "Asset Name": a.name,
-        Category: a.category,
-        "Purchase Date": a.purchaseDate,
-        "Purchase Cost (R)": Number(a.purchaseCost || 0),
-        "SARS Rate %": sarsRate,
-        "SARS Annual Allowance (R)": parseFloat(sarsAnnual.toFixed(2)),
-        "Straight-Line Rate %": parseFloat(slRate.toFixed(1)),
-        "Straight-Line Annual (R)": parseFloat(slAnnual.toFixed(2)),
-        "Difference (R)": parseFloat((sarsAnnual - slAnnual).toFixed(2)),
-        Verdict:
-          sarsRate > slRate
-            ? "SARS more favourable"
-            : sarsRate < slRate
-            ? "Straight-line more favourable"
-            : "Equal rates",
-      };
-    });
-    if (sarsRowsEx.length)
-      sarsRowsEx.push({
-        "Asset Name": "TOTALS",
-        Category: "",
-        "Purchase Date": "",
-        "Purchase Cost (R)": totalCost,
-        "SARS Rate %": "",
-        "SARS Annual Allowance (R)": parseFloat(
-          assets
-            .reduce(
-              (s, a) =>
-                s +
-                (Number(a.purchaseCost || 0) * (SARS_RATES[a.category] || 20)) /
-                  100,
-              0
-            )
-            .toFixed(2)
-        ),
-        "Straight-Line Rate %": "",
-        "Straight-Line Annual (R)": parseFloat(
-          assets
-            .reduce(
-              (s, a) =>
-                s +
-                Number(a.purchaseCost || 0) / (USEFUL_LIFE[a.category] || 5),
-              0
-            )
-            .toFixed(2)
-        ),
-        "Difference (R)": parseFloat(
-          assets
-            .reduce(
-              (s, a) =>
-                s +
-                (Number(a.purchaseCost || 0) * (SARS_RATES[a.category] || 20)) /
-                  100 -
-                Number(a.purchaseCost || 0) / (USEFUL_LIFE[a.category] || 5),
-              0
-            )
-            .toFixed(2)
-        ),
-        Verdict: "",
-      });
-    addSheet(
-      wb,
-      sarsRowsEx,
-      "SARS 11(e)",
-      [28, 14, 14, 18, 12, 22, 18, 20, 16, 28]
-    );
-
-    // ── LEAVE ──
-    const leaveRowsEx = leaves.map((l) => ({
-      Employee: l.employeeName,
-      "Leave Type": l.leaveType,
-      "Start Date": l.startDate,
-      "End Date": l.endDate || "",
-      Days: Number(l.days || 0),
-      Status: l.status,
-      "Approved By": l.approvedBy || "",
-      Notes: l.notes || "",
-    }));
-    addSheet(wb, leaveRowsEx, "Leave Records", [25, 20, 14, 14, 8, 14, 20, 35]);
-
-    // ── OVERTIME ──
-    const otRowsEx = overtimes.map((o) => ({
-      Employee: o.employeeName,
-      Date: o.date,
-      "Regular Hours": Number(o.regularHours || 8),
-      "Overtime Hours": Number(o.overtimeHours || 0),
-      "Total Hours": Number(o.regularHours || 8) + Number(o.overtimeHours || 0),
-      Reason: o.reason || "",
-      Site: o.site,
-      "Approved By": o.approvedBy || "",
-      Notes: o.notes || "",
-    }));
-    if (otRowsEx.length)
-      otRowsEx.push({
-        Employee: "TOTAL OVERTIME HOURS",
-        Date: "",
-        "Regular Hours": "",
-        "Overtime Hours": totalOvertimeHours,
-        "Total Hours": "",
-        Reason: "",
-        Site: "",
-        "Approved By": "",
-        Notes: "",
-      });
-    addSheet(wb, otRowsEx, "Overtime", [25, 14, 14, 14, 12, 35, 14, 20, 30]);
-
-    // ── ASSIGNMENTS ──
-    const assRowsEx = assignments.map((a) => {
-      const asset = assets.find((x) => x.id === a.assetId);
-      const days = a.endDate
-        ? Math.round(
-            (new Date(a.endDate) - new Date(a.startDate)) /
-              (1000 * 60 * 60 * 24)
-          )
-        : Math.round(
-            (new Date() - new Date(a.startDate)) / (1000 * 60 * 60 * 24)
-          );
-      return {
-        Asset: asset?.name || "—",
-        Category: asset?.category || "",
-        Operator: a.employeeName,
-        "Start Date": a.startDate,
-        "End Date": a.endDate || "Current",
-        "Duration (Days)": Math.max(0, days),
-        Site: a.site,
-        Active: a.endDate ? "No" : "Yes",
-        Notes: a.notes || "",
-      };
-    });
-    addSheet(
-      wb,
-      assRowsEx,
-      "Asset Assignments",
-      [28, 14, 25, 14, 14, 14, 14, 8, 35]
-    );
-
-    // ── AUDIT TRAIL ──
-    const auditRowsEx = auditLog.slice(0, 1000).map((a) => ({
-      Date: new Date(a.timestamp).toLocaleDateString("en-ZA"),
-      Time: new Date(a.timestamp).toLocaleTimeString("en-ZA"),
-      User: a.user,
-      Role: a.role.charAt(0).toUpperCase() + a.role.slice(1),
-      Action: a.action,
-      Module: a.module,
-      Description: a.description,
-    }));
-    addSheet(wb, auditRowsEx, "Audit Trail", [14, 12, 20, 12, 12, 22, 45]);
-
-    // ── PROJECT COST REPORT ──
-    const projCostRows = projects.map((p) => {
-      const sp = getProjectSpend(p.id);
-      const cv = Number(p.contractValue || 0);
-      return {
-        Project: p.name,
-        Code: p.code || "",
-        Site: p.site,
-        Status: p.status,
-        "Contract Value (R)": cv,
-        "Maintenance Cost (R)": parseFloat(sp.maint.toFixed(2)),
-        "Fuel Cost (R)": parseFloat(sp.fuel.toFixed(2)),
-        "Hire Cost (R)": parseFloat(sp.hire.toFixed(2)),
-        "Total Spend (R)": parseFloat(sp.total.toFixed(2)),
-        "Remaining (R)": cv > 0 ? parseFloat((cv - sp.total).toFixed(2)) : 0,
-        "Margin %":
-          cv > 0 ? parseFloat((((cv - sp.total) / cv) * 100).toFixed(1)) : 0,
-        Status:
-          cv > 0 && sp.total > cv
-            ? "OVER BUDGET"
-            : cv > 0 && sp.total / cv > 0.8
-            ? "Near Limit"
-            : "On Track",
-      };
-    });
-    addSheet(
-      wb,
-      projCostRows,
-      "Project Cost Report",
-      [28, 12, 14, 12, 20, 20, 16, 16, 16, 16, 12, 14]
-    );
-
-    // ── UTILISATION ──
-    const utilRows = assets.map((a) => {
-      const u = getAssetUtilisation(a.id);
-      return {
-        Asset: a.name,
-        Category: a.category,
-        Status: a.status,
-        "Fuel Cost (R)": parseFloat(u.fuelCost.toFixed(2)),
-        "Maint Cost (R)": parseFloat(u.maintCost.toFixed(2)),
-        "Total Cost (R)": parseFloat(u.totalCostAsset.toFixed(2)),
-        "Odometer/Hours": u.hoursReading || 0,
-        "Cost per Hour (R)":
-          u.costPerHour > 0 ? parseFloat(u.costPerHour.toFixed(2)) : 0,
-        "Downtime (hrs)": u.downtime,
-        "Fuel Records": u.fuelRecords,
-        "Maint Records": u.maintRecords,
-        Flag:
-          u.fuelRecords === 0 && u.maintRecords === 0 && a.status === "Active"
-            ? "IDLE"
-            : u.costPerHour > 0
-            ? "Active"
-            : "No data",
-      };
-    });
-    addSheet(
-      wb,
-      utilRows,
-      "Asset Utilisation",
-      [28, 14, 14, 16, 16, 16, 14, 16, 12, 12, 12, 12]
-    );
-
-    // ── ASSET EXPENSE REPORT ──
-    const assetExpRows = [...assets]
-      .map((a) => {
-        const e = getAssetExpenses(a.id);
+      assets.forEach((a, i) => {
         const d = depreciate(a);
-        const purchaseCost = Number(a.purchaseCost || 0);
-        const expenseRatio =
-          purchaseCost > 0 ? (e.totalExpenses / purchaseCost) * 100 : 0;
-        return {
-          "Asset Name": a.name,
-          Category: a.category,
-          "Serial / Reg": a.serialNumber || "",
-          Status: a.status,
-          Location: a.location,
-          "Purchase Cost (R)": purchaseCost,
-          "Book Value (R)": parseFloat(d.bookValue.toFixed(2)),
-          "Maintenance Cost (R)": parseFloat(e.maintCost.toFixed(2)),
-          "Fuel Cost (R)": parseFloat(e.fuelCost.toFixed(2)),
-          "Incident Repair Cost (R)": parseFloat(e.incidentCost.toFixed(2)),
-          "Total Expenses (R)": parseFloat(e.totalExpenses.toFixed(2)),
-          "Expense Ratio %": parseFloat(expenseRatio.toFixed(1)),
-          "Total Cost of Ownership (R)": parseFloat(
-            (purchaseCost + e.totalExpenses).toFixed(2)
-          ),
-          Stability:
-            e.totalExpenses === 0
-              ? "No Data"
-              : expenseRatio > 75
-              ? "High Risk"
-              : expenseRatio > 40
-              ? "Monitor"
-              : "Stable",
-        };
-      })
-      .sort((a, b) => b["Total Expenses (R)"] - a["Total Expenses (R)"]);
-    assetExpRows.push({
-      "Asset Name": "FLEET TOTALS",
-      Category: "",
-      "Serial / Reg": "",
-      Status: "",
-      Location: "",
-      "Purchase Cost (R)": assets.reduce(
-        (s, a) => s + Number(a.purchaseCost || 0),
-        0
-      ),
-      "Book Value (R)": parseFloat(
-        assets.reduce((s, a) => s + depreciate(a).bookValue, 0).toFixed(2)
-      ),
-      "Maintenance Cost (R)": parseFloat(
-        maint.reduce((s, m) => s + Number(m.cost || 0), 0).toFixed(2)
-      ),
-      "Fuel Cost (R)": parseFloat(
-        fuel.reduce((s, f) => s + Number(f.cost || 0), 0).toFixed(2)
-      ),
-      "Incident Repair Cost (R)": parseFloat(
-        incidents.reduce((s, i) => s + Number(i.repairCost || 0), 0).toFixed(2)
-      ),
-      "Total Expenses (R)": parseFloat(
-        assets
-          .reduce((s, a) => s + getAssetExpenses(a.id).totalExpenses, 0)
-          .toFixed(2)
-      ),
-      "Expense Ratio %": "",
-      "Total Cost of Ownership (R)": parseFloat(
-        assets
-          .reduce(
-            (s, a) =>
-              s +
-              Number(a.purchaseCost || 0) +
-              getAssetExpenses(a.id).totalExpenses,
-            0
-          )
-          .toFixed(2)
-      ),
-      Stability: "",
-    });
-    addSheet(
-      wb,
-      assetExpRows,
-      "Asset Expenses",
-      [28, 14, 16, 12, 14, 18, 16, 18, 14, 20, 18, 14, 22, 12]
-    );
-    const catExpRows = [...new Set(assets.map((a) => a.category))]
-      .map((cat) => {
-        const catAssets = assets.filter((a) => a.category === cat);
-        const catE = catAssets.reduce(
-          (s, a) => {
-            const e = getAssetExpenses(a.id);
-            return {
-              m: s.m + e.maintCost,
-              f: s.f + e.fuelCost,
-              i: s.i + e.incidentCost,
-              t: s.t + e.totalExpenses,
-            };
-          },
-          { m: 0, f: 0, i: 0, t: 0 }
-        );
-        const catCost = catAssets.reduce(
-          (s, a) => s + Number(a.purchaseCost || 0),
-          0
-        );
-        return {
-          Category: cat,
-          Assets: catAssets.length,
-          "Purchase Cost (R)": parseFloat(catCost.toFixed(2)),
-          "Maintenance (R)": parseFloat(catE.m.toFixed(2)),
-          "Fuel (R)": parseFloat(catE.f.toFixed(2)),
-          "Incident Repairs (R)": parseFloat(catE.i.toFixed(2)),
-          "Total Expenses (R)": parseFloat(catE.t.toFixed(2)),
-          "Expense Ratio %":
-            catCost > 0 ? parseFloat(((catE.t / catCost) * 100).toFixed(1)) : 0,
-          "Cost of Ownership (R)": parseFloat((catCost + catE.t).toFixed(2)),
-        };
-      })
-      .sort((a, b) => b["Total Expenses (R)"] - a["Total Expenses (R)"]);
-    addSheet(
-      wb,
-      catExpRows,
-      "Expenses by Category",
-      [18, 8, 20, 16, 14, 18, 16, 14, 20]
-    );
-    // ── ALERTS ──
-    const alertRows = allAlerts.map((a) => ({
-      Severity: a.severity.toUpperCase(),
-      Module: a.module,
-      Title: a.title,
-      Description: a.desc,
-      "Navigate To": a.tab,
-    }));
-    addSheet(wb, alertRows, "Alerts", [10, 18, 28, 60, 18]);
-    XLSX.writeFile(wb, `Mapitsi_Civil_Works_Management_Report_${month}.xlsx`);
+        const pct = Number(a.purchaseCost)>0 ? d.accumulated/Number(a.purchaseCost) : 0;
+        const latestCond = [...conditions].filter(c=>c.assetId===a.id).sort((x,y)=>y.assessmentDate>x.assessmentDate?1:-1)[0];
+        const rowFill = d.bookValue<=0 ? fill.danger : pct>0.75 ? fill.warn : i%2===0 ? fill.white : fill.surf;
+        addRow(asWs, [
+          a.name, a.category, a.serialNumber||"", a.purchaseDate,
+          Number(a.purchaseCost||0), USEFUL_LIFE[a.category]||5, d.rate/100,
+          Number(a.purchaseCost||0)/(USEFUL_LIFE[a.category]||5),
+          d.accumulated, d.bookValue, a.location, a.status, latestCond?.rating||"Not Assessed"
+        ], false, {
+          fill: rowFill,
+          fmt: ["","","","DD-MMM-YYYY",MONEY,"","0.0%",MONEY,MONEY,MONEY,"","",""],
+          align:["left","left","left","center","right","center","center","right","right","right","left","center","center"]
+        });
+      });
+      addTotal(asWs, ["PORTFOLIO TOTAL — "+assets.length+" Assets","","","",totalCost,"","",
+        assets.reduce((s,a)=>s+Number(a.purchaseCost||0)/(USEFUL_LIFE[a.category]||5),0),
+        totalCost-totalBook, totalBook,"","",""], {
+        fmt:["","","","",MONEY,"","",MONEY,MONEY,MONEY,"","",""],
+        align:["left","","","","right","","","right","right","right","","",""]
+      });
+
+      // ── 3. DEPRECIATION ────────────────────────────────────────────────
+      const dpWs = wb.addWorksheet("Depreciation", { properties:{ tabColor:{argb:"FFCA8A04"} } });
+      freeze(dpWs, [28,14,14,18,12,12,12,18,20,18,13,18]);
+      addBanner(dpWs, "DEPRECIATION SCHEDULE", "Straight-Line Method — Auto-Calculated per Asset Category", 12);
+      addHdr(dpWs, ["Asset","Category","Purchase Date","Purchase Cost (R)","Useful Life","Rate %/yr","Yrs Elapsed","Annual Write-Off (R)","Acc. Depreciation (R)","Book Value (R)","% Depreciated","Health Status"]);
+      assets.forEach((a,i) => {
+        const d = depreciate(a);
+        const pct = Number(a.purchaseCost)>0 ? d.accumulated/Number(a.purchaseCost) : 0;
+        const health = d.bookValue<=0?"Fully Depreciated":pct>0.75?"Near End of Life":pct>0.50?"Mid-Life":"Good";
+        const rowFill = d.bookValue<=0?fill.danger:pct>0.75?fill.warn:i%2===0?fill.white:fill.surf;
+        addRow(dpWs, [
+          a.name, a.category, a.purchaseDate, Number(a.purchaseCost||0),
+          USEFUL_LIFE[a.category]||5, d.rate/100, d.years,
+          Number(a.purchaseCost||0)/(USEFUL_LIFE[a.category]||5),
+          d.accumulated, d.bookValue, pct, health
+        ], false, { fill:rowFill, fmt:["","","DD-MMM-YYYY",MONEY,"","0.0%","0.0",MONEY,MONEY,MONEY,"0.0%",""],
+          align:["left","left","center","right","center","center","center","right","right","right","center","center"] });
+      });
+      addTotal(dpWs, ["PORTFOLIO TOTAL","","",totalCost,"","","",
+        assets.reduce((s,a)=>s+Number(a.purchaseCost||0)/(USEFUL_LIFE[a.category]||5),0),
+        totalCost-totalBook,totalBook,totalCost>0?(totalCost-totalBook)/totalCost:0,""], {
+        fmt:["","","",MONEY,"","","",MONEY,MONEY,MONEY,"0.0%",""]
+      });
+
+      // ── 4. MAINTENANCE ─────────────────────────────────────────────────
+      const maWs = wb.addWorksheet("Maintenance", { properties:{ tabColor:{argb:"FF7C3AED"} } });
+      freeze(maWs, [28,14,14,18,16,35,25,25,14]);
+      addBanner(maWs, "MAINTENANCE RECORDS", `Period: ${monthLabel(month)} · ${rM.length} Records · Total: ${fmt(rMC)}`, 9);
+      addHdr(maWs, ["Asset","Category","Date","Type","Cost (R)","Description","Performed By","Project Allocated","Next Due Date"]);
+      rM.forEach((m,i) => {
+        const asset = assets.find(a=>a.id===m.assetId);
+        const project = projects.find(p=>p.id===m.projectId);
+        const od = m.nextDueDate&&m.nextDueDate<today();
+        addRow(maWs, [
+          asset?.name||"—", asset?.category||"", m.date, m.type,
+          Number(m.cost||0), m.description||"", m.performedBy||"", project?.name||"", m.nextDueDate||""
+        ], false, { fill:od?fill.danger:i%2===0?fill.white:fill.surf,
+          fmt:["","","DD-MMM-YYYY","",MONEY,"","","","DD-MMM-YYYY"],
+          align:["left","left","center","left","right","left","left","left","center"] });
+      });
+      if(rM.length>0) addTotal(maWs, ["TOTAL MAINTENANCE COST — "+monthLabel(month),"","","",rMC,"","","",""], {
+        fmt:["","","","",MONEY,"","","",""],
+        align:["left","","","","right","","","",""]
+      });
+
+      // ── 5. FUEL ────────────────────────────────────────────────────────
+      const fuWs = wb.addWorksheet("Fuel & Usage", { properties:{ tabColor:{argb:"FF"+WARN_C.replace("FF","")} } });
+      freeze(fuWs, [28,14,14,12,16,16,18,14,25]);
+      const totL = rF.reduce((s,f)=>s+Number(f.litres||0),0);
+      const avgCpl = totL>0 ? rFC/totL : 0;
+      addBanner(fuWs, "FUEL & USAGE LOG", `Period: ${monthLabel(month)} · ${totL.toFixed(0)}L · ${fmt(rFC)} · Avg R${avgCpl.toFixed(2)}/L`, 9);
+      addHdr(fuWs, ["Asset","Category","Date","Litres","Cost (R)","Cost/Litre (R)","Odometer / Hours","Site","Project Allocated"]);
+      rF.forEach((ff2,i) => {
+        const asset = assets.find(a=>a.id===ff2.assetId);
+        const project = projects.find(p=>p.id===ff2.projectId);
+        const cpl = Number(ff2.litres)>0 ? Number(ff2.cost)/Number(ff2.litres) : 0;
+        const highCpl = cpl > avgCpl * 1.15 && avgCpl > 0;
+        addRow(fuWs, [
+          asset?.name||"—", asset?.category||"", ff2.date,
+          Number(ff2.litres||0), Number(ff2.cost||0), cpl,
+          ff2.odometer||"", ff2.site, project?.name||""
+        ], false, { fill:highCpl?fill.warn:i%2===0?fill.white:fill.surf,
+          fmt:["","","DD-MMM-YYYY","0.0",MONEY,MONEY,"","",""],
+          align:["left","left","center","right","right","right","left","left","left"] });
+      });
+      if(rF.length>0) addTotal(fuWs, ["TOTAL / AVERAGES","","",totL,rFC,totL>0?rFC/totL:0,"","",""], {
+        fmt:["","","","0.0",MONEY,MONEY,"","",""]
+      });
+
+      // ── 6. TIMESHEETS ──────────────────────────────────────────────────
+      const tsWs2 = wb.addWorksheet("Timesheets", { properties:{ tabColor:{argb:RED} } });
+      freeze(tsWs2, [25,14,14,14,25,30]);
+      addBanner(tsWs2, "TIMESHEET RECORDS", `Period: ${monthLabel(month)} · ${rT.length} Entries · ${rH.toFixed(1)} Hours`, 6);
+      addHdr(tsWs2, ["Employee","Date","Hours Worked","Site","Task / Role","Notes"]);
+      rT.forEach((t,i) => {
+        addRow(tsWs2, [t.employeeName, t.date, Number(t.hours||0), t.site, t.task||"", t.notes||""], i%2!==0, {
+          fmt:["","DD-MMM-YYYY","0.0","","",""], align:["left","center","center","left","left","left"]
+        });
+      });
+      if(rT.length>0) addTotal(tsWs2, ["TOTAL HOURS","",rH,"","",""], { fmt:["","","0.0","","",""] });
+
+      // ── 7. SUMMARY ─────────────────────────────────────────────────────
+      const smWs = wb.addWorksheet("Summary", { properties:{ tabColor:{argb:"FF059669"} } });
+      smWs.views = [{ showGridLines:false }];
+      smWs.columns = [{ width:48 },{ width:26 }];
+
+      const banSm = smWs.addRow(["MANAGEMENT SUMMARY REPORT", ""]);
+      smWs.mergeCells(banSm.number, 1, banSm.number, 2); banSm.height = 38;
+      banSm.getCell(1).font = f.title; banSm.getCell(1).fill = fill.dark;
+      banSm.getCell(1).alignment = { vertical:"middle", horizontal:"center" };
+      const banSm2 = smWs.addRow([`${company.name||"Mapitsi Civil Works"} · ${monthLabel(month)}`, ""]);
+      smWs.mergeCells(banSm2.number, 1, banSm2.number, 2); banSm2.height = 22;
+      banSm2.getCell(1).font = f.sub; banSm2.getCell(1).fill = fill.dark;
+      banSm2.getCell(1).alignment = { vertical:"middle", horizontal:"center" };
+
+      const addSmRow = (label, value, bold=false, numFmt2="", isAlert=false) => {
+        const rn = smWs.lastRow.number + 1;
+        const r = smWs.addRow([label, value]);
+        r.height = 20;
+        r.getCell(1).font = bold ? f.bold : f.muted;
+        r.getCell(2).font = isAlert&&value>0 ? { name:"Calibri",size:10,bold:true,color:{argb:RED} } : bold ? f.bold : f.data;
+        r.getCell(2).numFmt = numFmt2;
+        r.getCell(2).alignment = { horizontal:"right" };
+        const rowFill = isAlert&&value>0 ? fill.danger : rn%2===0?fill.surf:fill.white;
+        r.getCell(1).fill = r.getCell(2).fill = rowFill;
+        r.getCell(1).border = r.getCell(2).border = thin;
+      };
+
+      const smSections = [
+        { title:"ASSET PORTFOLIO", c:DARK, rows:[
+          ["Total Assets on Register", assets.length, true, INT],
+          ["Active Assets", assets.filter(a=>a.status==="Active").length, false, INT],
+          ["Total Acquisition Cost (R)", totalCost, true, MONEY],
+          ["Net Book Value (R)", totalBook, true, MONEY],
+          ["Accumulated Depreciation (R)", totalCost-totalBook, false, MONEY],
+          ["Portfolio Depreciation %", totalCost>0?(totalCost-totalBook)/totalCost:0, false, PCT],
+          ["Assets Fully Depreciated", assets.filter(a=>depreciate(a).bookValue<=0).length, false, INT],
+          ["Assets Disposed", disposals.length, false, INT],
+        ]},
+        { title:"OPERATIONAL — "+monthLabel(month).toUpperCase(), c:RED, rows:[
+          ["Maintenance Records", rM.length, false, INT],
+          ["Total Maintenance Cost (R)", rMC, true, MONEY],
+          ["Fuel Records", rF.length, false, INT],
+          ["Total Fuel Cost (R)", rFC, true, MONEY],
+          ["Total Operating Cost (R)", rMC+rFC, true, MONEY],
+          ["Labour Hours", rH, false, HRS],
+        ]},
+        { title:"COMPLIANCE & RISK", c:DARK, rows:[
+          ["Expired Documents", compliance.filter(c=>c.expiryDate&&c.expiryDate<today()).length, true, INT, true],
+          ["Expiring within 30 Days", expiringSoon.length, false, INT, true],
+          ["Open Incidents", openIncidents, true, INT, true],
+          ["Total Incident Downtime (hrs)", incidents.reduce((s,i)=>s+Number(i.downtimeHours||0),0), false, HRS],
+          ["Total Incident Repair Cost (R)", incidents.reduce((s,i)=>s+Number(i.repairCost||0),0), false, MONEY],
+          ["Poor Condition Assets", poorConditionAssets, false, INT, true],
+          ["Schedule Alerts", scheduleAlerts.length, false, INT, true],
+        ]},
+        { title:"PARTS & PROCUREMENT", c:RED, rows:[
+          ["Total Parts on Register", spares.length, false, INT],
+          ["Parts Out of Stock", sparesOut, false, INT, true],
+          ["Parts Low Stock", sparesLow, false, INT, true],
+          ["Spares Inventory Value (R)", spares.reduce((s,x)=>s+Number(x.quantity||0)*Number(x.unitCost||0),0), true, MONEY],
+          ["Open Purchase Orders", purchaseOrders.filter(p=>!["Fully Received","Cancelled"].includes(p.status)).length, false, INT],
+          ["Total PO Value (excl. VAT)", purchaseOrders.reduce((s,p)=>s+poItemTotal(p),0), false, MONEY],
+        ]},
+        { title:"HR & LABOUR", c:DARK, rows:[
+          ["Total Employees", employees.length, false, INT],
+          ["Active Employees", employees.filter(e=>e.status==="Active").length, false, INT],
+          ["Currently on Leave", employeesOnLeave, false, INT],
+          ["Total Overtime Hours (All Time)", totalOvertimeHours, false, HRS],
+          ["Job Cards Open / Active", jobCards.filter(j=>!["Complete","Cancelled","Invoiced"].includes(j.status)).length, false, INT, true],
+          ["Critical Job Cards", jobCards.filter(j=>j.priority==="Critical"&&!["Complete","Cancelled"].includes(j.status)).length, false, INT, true],
+        ]},
+        { title:"FINANCIAL", c:RED, rows:[
+          ["Active Projects", projects.filter(p=>p.status==="Active").length, false, INT],
+          ["Total Active Contract Value (R)", projects.filter(p=>p.status==="Active").reduce((s,p)=>s+Number(p.contractValue||0),0), true, MONEY],
+          ["Budgets Overspent", budgetsOverspent, false, INT, true],
+          ["Total Disposal Recovery (R)", disposals.reduce((s,d)=>s+Number(d.disposalValue||0),0), false, MONEY],
+        ]},
+      ];
+
+      smSections.forEach(sec => {
+        addSection(smWs, sec.title, 2, sec.c);
+        sec.rows.forEach(r => addSmRow(...r));
+      });
+
+      // ── 8. COMPLIANCE ──────────────────────────────────────────────────
+      const coWs = wb.addWorksheet("Compliance", { properties:{ tabColor:{argb:"FF"+INFO_C.replace("FF","")||INFO_C} } });
+      freeze(coWs, [28,22,20,14,14,14,35]);
+      addBanner(coWs, "COMPLIANCE & LICENCES REGISTER", `${compliance.length} Documents · ${compliance.filter(c=>c.expiryDate&&c.expiryDate<today()).length} Expired · ${expiringSoon.length} Expiring Soon`, 7);
+      addHdr(coWs, ["Asset","Document Type","Doc Number","Issue Date","Expiry Date","Status","Notes"]);
+      [...compliance].sort((a,b)=>a.expiryDate>b.expiryDate?1:-1).forEach((c,i) => {
+        const asset = assets.find(a=>a.id===c.assetId);
+        const days = c.expiryDate ? Math.round((new Date(c.expiryDate)-new Date())/(1000*60*60*24)) : null;
+        const expired = days!==null&&days<0, soon = days!==null&&days>=0&&days<=30;
+        addRow(coWs, [
+          asset?.name||"—", c.docType, c.docNumber||"", c.issueDate||"", c.expiryDate||"",
+          expired?"EXPIRED":soon?`Expires in ${days} days`:"Valid", c.notes||""
+        ], false, { fill:expired?fill.danger:soon?fill.warn:i%2===0?fill.white:fill.surf,
+          fmt:["","","","DD-MMM-YYYY","DD-MMM-YYYY","",""],
+          align:["left","left","left","center","center","center","left"] });
+      });
+
+      // ── 9. INCIDENTS ───────────────────────────────────────────────────
+      const inWs = wb.addWorksheet("Incidents", { properties:{ tabColor:{argb:RED} } });
+      freeze(inWs, [28,14,14,18,35,22,14,16,22,12]);
+      addBanner(inWs, "INCIDENT & BREAKDOWN LOG", `${incidents.length} Incidents · ${incidents.filter(i=>i.resolved==="No").length} Open · ${fmt(incidents.reduce((s,i)=>s+Number(i.repairCost||0),0))} Total Repair Cost`, 10);
+      addHdr(inWs, ["Asset","Category","Date","Type","Description","Operator","Downtime (hrs)","Repair Cost (R)","Reported By","Status"]);
+      incidents.forEach((inc,i) => {
+        const asset = assets.find(a=>a.id===inc.assetId);
+        addRow(inWs, [
+          asset?.name||"—", asset?.category||"", inc.date, inc.type, inc.description||"",
+          inc.operatorName||"", Number(inc.downtimeHours||0), Number(inc.repairCost||0), inc.reportedBy||"",
+          inc.resolved==="Yes"?"Resolved":"Open"
+        ], false, { fill:inc.resolved==="No"?fill.danger:i%2===0?fill.white:fill.surf,
+          fmt:["","","DD-MMM-YYYY","","","",HRS,MONEY,"",""],
+          align:["left","left","center","left","left","left","center","right","left","center"] });
+      });
+      if(incidents.length>0) addTotal(inWs, ["TOTALS","","","","","",
+        incidents.reduce((s,i)=>s+Number(i.downtimeHours||0),0),
+        incidents.reduce((s,i)=>s+Number(i.repairCost||0),0),"",""], {
+        fmt:["","","","","","",HRS,MONEY,"",""]
+      });
+
+      // ── 10. BUDGET TRACKER ─────────────────────────────────────────────
+      const buWs = wb.addWorksheet("Budget Tracker", { properties:{ tabColor:{argb:"FFD97706"} } });
+      freeze(buWs, [18,20,14,18,18,18,13,16,30]);
+      addBanner(buWs, "BUDGET TRACKER", `${budgets.length} Budget Lines · ${budgetsOverspent} Overspent · ${fmt(totalBudgeted)} Budgeted this month`, 9);
+      addHdr(buWs, ["Month","Category","Site","Budget (R)","Spent (R)","Remaining (R)","Usage %","Status","Notes"]);
+      budgets.forEach((b,i) => {
+        const spent=getBudgetSpent(b), budget=Number(b.budgetAmount||0), rem=budget-spent;
+        const pct=budget>0?spent/budget:0, over=spent>budget;
+        addRow(buWs, [monthLabel(b.month),b.category,b.site,budget,spent,rem,pct,
+          over?"OVER BUDGET":pct>0.8?"Near Limit":"On Track",b.notes||""
+        ], false, { fill:over?fill.danger:pct>0.8?fill.warn:i%2===0?fill.white:fill.surf,
+          fmt:["","","",MONEY,MONEY,MONEY,PCT,"",""],
+          align:["left","left","left","right","right","right","right","center","left"] });
+      });
+
+      // ── 11. SPARES INVENTORY ───────────────────────────────────────────
+      const spWs2 = wb.addWorksheet("Parts & Spares", { properties:{ tabColor:{argb:"FF059669"} } });
+      freeze(spWs2, [28,16,16,20,12,14,16,18,14,12,30]);
+      addBanner(spWs2, "PARTS & SPARES INVENTORY",
+        `${spares.length} Parts · ${sparesOut} Out of Stock · ${sparesLow} Low Stock · ${fmt(spares.reduce((s,x)=>s+Number(x.quantity||0)*Number(x.unitCost||0),0))} Total Value`, 11);
+      addHdr(spWs2, ["Part Name","Part Number","Category","Supplier","Qty in Stock","Min Stock Level","Unit Cost (R)","Total Value (R)","Location","Status","Notes"]);
+      [...spares].sort((a,b)=>{ const aA=Number(a.quantity||0)<=Number(a.minStockLevel||0), bA=Number(b.quantity||0)<=Number(b.minStockLevel||0); return bA-aA; })
+        .forEach((s,i) => {
+          const out=Number(s.quantity||0)===0, low=!out&&Number(s.quantity||0)<=Number(s.minStockLevel||0)&&Number(s.minStockLevel||0)>0;
+          addRow(spWs2, [
+            s.partName, s.partNumber||"", s.category, s.supplier||"",
+            Number(s.quantity||0), Number(s.minStockLevel||0), Number(s.unitCost||0),
+            Number(s.quantity||0)*Number(s.unitCost||0), s.location,
+            out?"OUT OF STOCK":low?"LOW STOCK":s.status, s.notes||""
+          ], false, { fill:out?fill.danger:low?fill.warn:i%2===0?fill.white:fill.surf,
+            fmt:["","","","",INT,INT,MONEY,MONEY,"","",""],
+            align:["left","left","left","left","center","center","right","right","left","center","left"] });
+        });
+      addTotal(spWs2, ["TOTAL INVENTORY VALUE","","","","","","",
+        spares.reduce((s,x)=>s+Number(x.quantity||0)*Number(x.unitCost||0),0),"","",""], {
+        fmt:["","","","","","","",MONEY,"","",""]
+      });
+
+      // ── 12. JOB CARDS ──────────────────────────────────────────────────
+      if(jobCards.length > 0) {
+        const jcWs2 = wb.addWorksheet("Job Cards", { properties:{ tabColor:{argb:"FF374151"} } });
+        freeze(jcWs2, [14,28,22,12,16,22,14,16,16,35,35]);
+        addBanner(jcWs2, "JOB CARD REGISTER", `${jobCards.length} Total · ${jobCards.filter(j=>!["Complete","Cancelled","Invoiced"].includes(j.status)).length} Open · ${jobCards.filter(j=>j.priority==="Critical"&&!["Complete","Cancelled"].includes(j.status)).length} Critical`, 11);
+        addHdr(jcWs2, ["JC Number","Asset","Type","Priority","Status","Assigned To","Date Opened","Estimated Cost","Actual Cost","Description","Work Done"]);
+        [...jobCards].sort((a,b)=>{const po={Critical:0,High:1,Medium:2,Low:3};return (po[a.priority]||2)-(po[b.priority]||2);}).forEach((j,i) => {
+          const asset=assets.find(a=>a.id===j.assetId);
+          const jcFill=j.priority==="Critical"?fill.danger:j.priority==="High"?fill.warn:j.status==="Complete"?fill.success:i%2===0?fill.white:fill.surf;
+          addRow(jcWs2, [
+            `JC-${j.id.slice(-6).toUpperCase()}`, asset?.name||"—", j.type, j.priority, j.status,
+            j.assignedTo||"", j.openedDate, Number(j.estimatedCost||0), Number(j.actualCost||0),
+            j.description||"", j.workDone||""
+          ], false, { fill:jcFill,
+            fmt:["","","","","","","DD-MMM-YYYY",MONEY,MONEY,"",""],
+            align:["center","left","left","center","center","left","center","right","right","left","left"] });
+        });
+        addTotal(jcWs2, ["","","","","","","","",jobCards.reduce((s,j)=>s+Number(j.actualCost||0),0),"",""], {
+          fmt:["","","","","","","","",MONEY,"",""]
+        });
+      }
+
+      // ── 13. PURCHASE ORDERS ────────────────────────────────────────────
+      if(purchaseOrders.length > 0) {
+        const poWs2 = wb.addWorksheet("Purchase Orders", { properties:{ tabColor:{argb:"FF1D4ED8"} } });
+        freeze(poWs2, [16,28,22,22,10,18,18,12,14,14,16]);
+        const poTotal2=purchaseOrders.reduce((s,p)=>s+poItemTotal(p),0);
+        addBanner(poWs2, "PURCHASE ORDERS", `${purchaseOrders.length} Orders · ${purchaseOrders.filter(p=>!["Fully Received","Cancelled"].includes(p.status)).length} Open · ${fmt(poTotal2)} excl. VAT · ${fmt(poTotal2*1.15)} incl. VAT`, 11);
+        addHdr(poWs2, ["PO Number","Supplier","Type","Project","Lines","Total excl. VAT","Total incl. VAT","Terms","Date Raised","Date Required","Status"]);
+        purchaseOrders.forEach((po,i) => {
+          const supplier=suppliers.find(s=>s.id===po.supplierId);
+          const project=projects.find(p=>p.id===po.projectId);
+          const tot=poItemTotal(po);
+          const poFill=po.status==="Fully Received"?fill.success:po.status==="Cancelled"?fill.surf:i%2===0?fill.white:fill.surf;
+          addRow(poWs2, [po.poNumber,supplier?.name||"—",po.type,project?.name||"—",
+            (po.items||[]).length,tot,tot*1.15,po.terms||"—",po.dateCreated,po.dateRequired||"",po.status
+          ], false, { fill:poFill,
+            fmt:["","","","",INT,MONEY,MONEY,"","DD-MMM-YYYY","DD-MMM-YYYY",""],
+            align:["center","left","left","left","center","right","right","center","center","center","center"] });
+        });
+        addTotal(poWs2, ["TOTALS","","","",purchaseOrders.reduce((s,p)=>s+(p.items||[]).length,0),poTotal2,poTotal2*1.15,"","","",""], {
+          fmt:["","","","",INT,MONEY,MONEY,"","","",""]
+        });
+      }
+
+      // ── 14. ASSET EXPENSES ─────────────────────────────────────────────
+      const aeWs = wb.addWorksheet("Asset Expenses", { properties:{ tabColor:{argb:RED} } });
+      freeze(aeWs, [28,14,14,14,18,16,18,14,18,16,22,12]);
+      addBanner(aeWs, "ASSET EXPENSE REPORT", "Full Lifetime Cost Breakdown per Asset — Maintenance · Fuel · Incident Repairs · Total Cost of Ownership", 12);
+      addHdr(aeWs, ["Asset","Category","Status","Location","Purchase Cost (R)","Book Value (R)","Maintenance (R)","Fuel (R)","Incident Repairs (R)","Total Expenses (R)","Cost of Ownership (R)","Expense Ratio %"]);
+      [...assets].map(a => { const e=getAssetExpenses(a.id), d=depreciate(a), pc=Number(a.purchaseCost||0), ratio=pc>0?e.totalExpenses/pc:0; return {...a,_e:e,_d:d,_pc:pc,_ratio:ratio}; })
+        .sort((a,b)=>b._e.totalExpenses-a._e.totalExpenses)
+        .forEach((a,i) => {
+          const aFill=a._ratio>0.75?fill.danger:a._ratio>0.40?fill.warn:i%2===0?fill.white:fill.surf;
+          addRow(aeWs, [
+            a.name, a.category, a.status, a.location, a._pc, a._d.bookValue,
+            a._e.maintCost, a._e.fuelCost, a._e.incidentCost, a._e.totalExpenses,
+            a._pc+a._e.totalExpenses, a._ratio
+          ], false, { fill:aFill,
+            fmt:["","","","",MONEY,MONEY,MONEY,MONEY,MONEY,MONEY,MONEY,PCT],
+            align:["left","left","center","left","right","right","right","right","right","right","right","right"] });
+        });
+      addTotal(aeWs, ["FLEET TOTALS","","","",
+        assets.reduce((s,a)=>s+Number(a.purchaseCost||0),0),
+        assets.reduce((s,a)=>s+depreciate(a).bookValue,0),
+        maint.reduce((s,m)=>s+Number(m.cost||0),0),
+        fuel.reduce((s,f)=>s+Number(f.cost||0),0),
+        incidents.reduce((s,i)=>s+Number(i.repairCost||0),0),
+        assets.reduce((s,a)=>s+getAssetExpenses(a.id).totalExpenses,0),
+        assets.reduce((s,a)=>s+Number(a.purchaseCost||0)+getAssetExpenses(a.id).totalExpenses,0), ""
+      ], { fmt:["","","","",MONEY,MONEY,MONEY,MONEY,MONEY,MONEY,MONEY,""] });
+
+      // ── 15. SARS 11(e) ─────────────────────────────────────────────────
+      const srWs = wb.addWorksheet("SARS 11(e)", { properties:{ tabColor:{argb:"FF059669"} } });
+      freeze(srWs, [28,14,14,18,12,22,18,22,18,28]);
+      addBanner(srWs, "SARS SECTION 11(e) — WEAR & TEAR SCHEDULE", "For Income Tax Submission Purposes · Verify with Tax Practitioner Before Filing", 10);
+      addHdr(srWs, ["Asset","Category","Purchase Date","Purchase Cost (R)","SARS Rate %","SARS Annual Allowance (R)","Straight-Line Rate %","Straight-Line Annual (R)","Difference (R)","Note"]);
+      assets.forEach((a,i) => {
+        const sRate=SARS_RATES[a.category]||20, slRate=(1/(USEFUL_LIFE[a.category]||5))*100;
+        const sAnnual=Number(a.purchaseCost||0)*sRate/100, slAnnual=Number(a.purchaseCost||0)/(USEFUL_LIFE[a.category]||5);
+        const diff=sAnnual-slAnnual;
+        addRow(srWs, [
+          a.name, a.category, a.purchaseDate, Number(a.purchaseCost||0), sRate/100,
+          sAnnual, slRate/100, slAnnual, diff,
+          sRate>slRate?"SARS more favourable":sRate<slRate?"Straight-line more favourable":"Equal rates"
+        ], false, { fill:sAnnual>slAnnual?fill.success:i%2===0?fill.white:fill.surf,
+          fmt:["","","DD-MMM-YYYY",MONEY,"0.0%",MONEY,"0.0%",MONEY,MONEY,""],
+          align:["left","left","center","right","center","right","center","right","right","center"] });
+      });
+      addTotal(srWs, ["TOTALS","","",totalCost,"",
+        assets.reduce((s,a)=>s+(Number(a.purchaseCost||0)*(SARS_RATES[a.category]||20)/100),0), "",
+        assets.reduce((s,a)=>s+Number(a.purchaseCost||0)/(USEFUL_LIFE[a.category]||5),0),
+        assets.reduce((s,a)=>s+(Number(a.purchaseCost||0)*(SARS_RATES[a.category]||20)/100)-(Number(a.purchaseCost||0)/(USEFUL_LIFE[a.category]||5)),0), ""
+      ], { fmt:["","","",MONEY,"",MONEY,"",MONEY,MONEY,""] });
+
+      // ── 16. AUDIT TRAIL ────────────────────────────────────────────────
+      const auWs = wb.addWorksheet("Audit Trail", { properties:{ tabColor:{argb:"FF6B7280"} } });
+      freeze(auWs, [14,12,22,14,12,22,50]);
+      addBanner(auWs, "SYSTEM AUDIT TRAIL", `Last 1,000 Events · ${auditLog.length} Total Events Logged`, 7);
+      addHdr(auWs, ["Date","Time","User","Role","Action","Module","Description"]);
+      auditLog.slice(0,1000).forEach((a,i) => {
+        const ts2=new Date(a.timestamp);
+        const aFill=a.action==="DELETE"?fill.danger:a.action==="ADD"?fill.success:i%2===0?fill.white:fill.surf;
+        addRow(auWs, [
+          ts2.toLocaleDateString("en-ZA"),
+          ts2.toLocaleTimeString("en-ZA",{hour:"2-digit",minute:"2-digit"}),
+          a.user, a.role, a.action, a.module, a.description
+        ], false, { fill:aFill, align:["center","center","left","center","center","left","left"] });
+      });
+
+      // ── WRITE FILE ─────────────────────────────────────────────────────
+      const buf = await wb.xlsx.writeBuffer();
+      const blob = new Blob([buf], { type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+      const url = URL.createObjectURL(blob);
+      const a2 = document.createElement("a");
+      a2.href = url; a2.download = `Mapitsi_Management_Report_${month}.xlsx`;
+      a2.click(); URL.revokeObjectURL(url);
+      toast("Professional Excel report exported ✓", "success");
+    } catch(err) {
+      console.error("Excel export error:", err);
+      toast("Export failed: " + err.message, "error");
+    }
   };
 
   if (!currentUser)
@@ -12873,6 +12859,18 @@ export default function App() {
               )}
             </div>
           )}
+          {/* PURCHASE ORDERS */}
+          {tab === "PurchaseOrders" && (
+            <PurchaseOrdersTab
+              purchaseOrders={purchaseOrders} setPurchaseOrders={setPurchaseOrders}
+              suppliers={suppliers} spares={spares} projects={projects}
+              currentUser={currentUser} persist={persist} add={add} update={update} del={del}
+              logAudit={logAudit} toast={toast} can={can} fmt={fmt} today={today}
+              C={C} inp={inp} Field={Field} Row2={Row2} Btn={Btn} Card={Card}
+              Tbl={Tbl} TR={TR} Empty={Empty} KPI={KPI} Pill={Pill} PageTitle={PageTitle}
+            />
+          )}
+
           {/* JOB CARDS */}
           {tab === "JobCards" && (
             <JobCardsTab
