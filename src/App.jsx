@@ -244,6 +244,7 @@ const NAV = [
   { id: "JobCards", ico: "🔧" },
   { id: "AIAssist", ico: "✦" },
   { id: "FleetMap", ico: "◉" },
+  { id: "AssetIntel", ico: "◈" },
   { id: "Settings", ico: "⚙" },
 ];
 const NAV_LABELS = {
@@ -284,6 +285,7 @@ const NAV_LABELS = {
   JobCards: "Job Cards",
   AIAssist: "AI Plant Assistant",
   FleetMap: "Fleet Visual Map",
+  AssetIntel: "Asset Intelligence",
   Settings: "Settings",
 };
 const ROLES = {
@@ -1188,7 +1190,7 @@ const NAV_SECTIONS = [
   { label: "Operations", ids: ["Maintenance","JobCards","Schedules","Fuel","FuelRecon","Incidents","Hire","PreOp"] },
   { label: "People", ids: ["Employees", "Timesheets", "Leave", "Projects"] },
   { label: "Finance", ids: ["Budgets", "Compliance", "Reports", "SARSReport", "ProjectCost", "PurchaseOrders"] },
-  { label: "Intelligence", ids: ["Analytics", "AIAssist", "FleetMap", "FuelRecon", "Utilisation", "Alerts", "AssetExpenses"] },
+  { label: "Intelligence", ids: ["Analytics", "AIAssist", "FleetMap", "AssetIntel", "FuelRecon", "Utilisation", "Alerts", "AssetExpenses"] },
   { label: "System", ids: ["Suppliers","Contractors","AuditLog","Import","Settings"] },
 ];
 
@@ -2658,6 +2660,414 @@ function FleetMapTab({ assets, maint, fuel, incidents, conditions, transfers, pr
       {/* ASSET DETAIL MODAL */}
       {selectedAsset && (
         <AssetDetailPanel a={selectedAsset} onClose={() => setSelectedAsset(null)} />
+      )}
+    </div>
+  );
+}
+
+
+function AssetIntelTab({ assets, maint, fuel, incidents, conditions, preops, spares,
+  jobCards, assignments, employees, ts, company, today, fmt, depreciate,
+  getAssetExpenses, C, Btn, Pill, KPI, PageTitle }) {
+
+  const [activeSection, setActiveSection] = React.useState("predict");
+  const [aiLoading, setAiLoading] = React.useState(false);
+  const [predictions, setPredictions] = React.useState(null);
+  const [aiError, setAiError] = React.useState(null);
+  const [expandedAsset, setExpandedAsset] = React.useState(null);
+
+  const last6Months = () => Array.from({length:6},(_,i)=>{
+    const d=new Date(); d.setMonth(d.getMonth()-(5-i)); return d.toISOString().slice(0,7);
+  });
+  const last6 = last6Months();
+  const prev6 = Array.from({length:6},(_,i)=>{
+    const d=new Date(); d.setMonth(d.getMonth()-(11-i)); return d.toISOString().slice(0,7);
+  });
+  const shortM = (m) => { try { return new Date(m+"-02").toLocaleDateString("en-ZA",{month:"short"}); } catch { return m; } };
+
+  const getReplaceRepairScore = (a) => {
+    const e = getAssetExpenses(a.id);
+    const d = depreciate(a);
+    const pc = Number(a.purchaseCost || 0);
+    const expenseRatio = pc > 0 ? e.totalExpenses / pc : 0;
+    const recentMC = maint.filter(m=>m.assetId===a.id&&last6.some(mo=>m.date?.startsWith(mo))).reduce((s,m)=>s+Number(m.cost||0),0);
+    const priorMC  = maint.filter(m=>m.assetId===a.id&&prev6.some(mo=>m.date?.startsWith(mo))).reduce((s,m)=>s+Number(m.cost||0),0);
+    const maintTrend = priorMC > 0 ? (recentMC - priorMC) / priorMC : 0;
+    const totalMonths = pc>0&&a.purchaseDate ? Math.max(1,(Date.now()-new Date(a.purchaseDate))/(1000*60*60*24*30)) : 12;
+    const incidentRate = (incidents.filter(i=>i.assetId===a.id).length/totalMonths)*12;
+    const deprPct = pc > 0 ? d.accumulated/pc : 0;
+    const latestCond = [...conditions].filter(c=>c.assetId===a.id).sort((x,y)=>y.assessmentDate>x.assessmentDate?1:-1)[0];
+    const condScore = ({Excellent:0,Good:0.1,Fair:0.3,Poor:0.6,"Write-Off Recommended":1})[latestCond?.rating] ?? 0.2;
+    const openJCs = jobCards.filter(j=>j.assetId===a.id&&!["Complete","Cancelled","Invoiced"].includes(j.status)).length;
+    const score = Math.min(100,Math.round(expenseRatio*35+Math.max(0,maintTrend)*15+Math.min(incidentRate/5,1)*15+deprPct*20+condScore*10+Math.min(openJCs/3,1)*5));
+    const rec = score>=75?{label:"Replace Now",color:C.red,bg:"#FEE2E2",icon:"🔴"}:score>=50?{label:"Plan Replacement",color:"#F97316",bg:"#FFEDD5",icon:"🟠"}:score>=30?{label:"Monitor Closely",color:C.warn,bg:"#FFFBEB",icon:"🟡"}:{label:"Keep — Good Value",color:C.success,bg:"#ECFDF5",icon:"🟢"};
+    return {score,recommendation:rec,expenseRatio,maintTrend,recentMC,priorMC,incidentRate,deprPct,openJCs,totalExpenses:e.totalExpenses,bookValue:d.bookValue,pc,latestCond};
+  };
+
+  const getOperatorScores = () => {
+    const allOps = new Set([...ts.map(t=>t.employeeName),...preops.map(p=>p.operatorName),...incidents.map(i=>i.operatorName).filter(Boolean),...assignments.map(a=>a.employeeName)]);
+    return [...allOps].filter(Boolean).map(name => {
+      const opTs=ts.filter(t=>t.employeeName===name);
+      const totalHours=opTs.reduce((s,t)=>s+Number(t.hours||0),0);
+      const opPreops=preops.filter(p=>p.operatorName===name);
+      const defectPreops=opPreops.filter(p=>p.checks&&Object.values(p.checks).some(v=>v==="fail")).length;
+      const preOpCompliance=opPreops.length>0?((opPreops.length-defectPreops)/opPreops.length)*100:null;
+      const opIncidents=incidents.filter(i=>i.operatorName===name);
+      const totalDowntime=opIncidents.reduce((s,i)=>s+Number(i.downtimeHours||0),0);
+      const assignedAssets=assignments.filter(a=>a.employeeName===name).map(a=>a.assetId);
+      const opFuel=fuel.filter(f=>assignedAssets.includes(f.assetId));
+      const fuelCost=opFuel.reduce((s,f)=>s+Number(f.cost||0),0);
+      const fuelLitres=opFuel.reduce((s,f)=>s+Number(f.litres||0),0);
+      const avgCpl=fuelLitres>0?fuelCost/fuelLitres:null;
+      const preOpScore=preOpCompliance!==null?(preOpCompliance/100)*35:17.5;
+      const incPer100=totalHours>0?(opIncidents.length/totalHours)*100:opIncidents.length*5;
+      const incScore=Math.max(0,35-incPer100*10);
+      const actScore=Math.min(20,(totalHours/200)*20);
+      const fuelScore=avgCpl===null?5:Math.max(0,10-Math.max(0,avgCpl-15)*0.5);
+      const totalScore=Math.round(Math.min(100,preOpScore+incScore+actScore+fuelScore));
+      const grade=totalScore>=85?"A":totalScore>=70?"B":totalScore>=55?"C":totalScore>=40?"D":"F";
+      const gradeColor=totalScore>=85?C.success:totalScore>=70?"#22C55E":totalScore>=55?C.warn:totalScore>=40?"#F97316":C.red;
+      return {name,totalScore,grade,gradeColor,totalHours,preOpCompliance,defectPreops,incidents:opIncidents.length,totalDowntime,avgCpl,preOpScore:Math.round(preOpScore),incScore:Math.round(incScore),actScore:Math.round(actScore),fuelScore:Math.round(fuelScore),totalPreops:opPreops.length};
+    }).sort((a,b)=>b.totalScore-a.totalScore);
+  };
+
+  const runPredictiveAI = async () => {
+    setAiLoading(true); setAiError(null); setPredictions(null);
+    try {
+      const assetData = assets.map(a => {
+        const e=getAssetExpenses(a.id); const d=depreciate(a);
+        const assetMaint=[...maint].filter(m=>m.assetId===a.id).sort((x,y)=>y.date>x.date?1:-1);
+        const recentMC=assetMaint.filter(m=>last6.some(mo=>m.date?.startsWith(mo))).reduce((s,m)=>s+Number(m.cost||0),0);
+        const priorMC=assetMaint.filter(m=>prev6.some(mo=>m.date?.startsWith(mo))).reduce((s,m)=>s+Number(m.cost||0),0);
+        const assetInc=incidents.filter(i=>i.assetId===a.id);
+        const recentInc=assetInc.filter(i=>last6.some(mo=>i.date?.startsWith(mo)));
+        const latestCond=[...conditions].filter(c=>c.assetId===a.id).sort((x,y)=>y.assessmentDate>x.assessmentDate?1:-1)[0];
+        const failedChecks={};
+        preops.filter(p=>p.assetId===a.id).forEach(p=>Object.entries(p.checks||{}).forEach(([k,v])=>{ if(v==="fail") failedChecks[k]=(failedChecks[k]||0)+1; }));
+        const daysSince=assetMaint[0]?Math.round((new Date()-new Date(assetMaint[0].date))/(1000*60*60*24)):null;
+        const preopsLast30=preops.filter(p=>p.assetId===a.id&&((new Date()-new Date(p.date))/(1000*60*60*24))<=30);
+        return {
+          id:a.id,name:a.name,category:a.category,
+          age_years:d.years.toFixed(1),depr_pct:Math.round(d.accumulated/Math.max(1,Number(a.purchaseCost||0))*100),
+          book_value:Math.round(d.bookValue),purchase_cost:Number(a.purchaseCost||0),
+          status:a.status,condition:latestCond?.rating||"Not assessed",
+          days_since_last_service:daysSince,
+          maint_types_6mo:assetMaint.filter(m=>last6.some(mo=>m.date?.startsWith(mo))).map(m=>m.type),
+          maint_cost_6mo:Math.round(recentMC),maint_cost_prior_6mo:Math.round(priorMC),
+          maint_trend_pct:priorMC>0?Math.round(((recentMC-priorMC)/priorMC)*100):null,
+          incidents_6mo:recentInc.length,incidents_prior_6mo:assetInc.filter(i=>prev6.some(mo=>i.date?.startsWith(mo))).length,
+          incident_types:[...new Set(recentInc.map(i=>i.type))],
+          downtime_hrs:recentInc.reduce((s,i)=>s+Number(i.downtimeHours||0),0),
+          preop_fails_30d:preopsLast30.filter(p=>p.checks&&Object.values(p.checks).some(v=>v==="fail")).length,
+          recurring_preop_fails:Object.entries(failedChecks).filter(([,v])=>v>1).map(([k])=>k),
+          open_job_cards:jobCards.filter(j=>j.assetId===a.id&&!["Complete","Cancelled","Invoiced"].includes(j.status)).length,
+          expense_ratio_pct:Math.round(e.totalExpenses/Math.max(1,Number(a.purchaseCost||0))*100),
+        };
+      });
+      const response = await fetch("https://api.anthropic.com/v1/messages",{
+        method:"POST",
+        headers:{"Content-Type":"application/json","x-api-key":"","anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
+        body:JSON.stringify({
+          model:"claude-haiku-4-5-20251001",max_tokens:2000,
+          system:`You are a plant maintenance AI for ${company.name||"Mapitsi Civil Works"} (South Africa). Analyse asset data and return ONLY a valid JSON array — no markdown. Each object: {"id":"string","risk":"Low|Medium|High|Critical","risk_score":0-100,"predicted_failure_window":"string","likely_failure_type":"string","confidence":"Low|Medium|High","key_signals":["string"],"recommended_action":"string","estimated_preventive_cost":"string","estimated_failure_cost":"string"}. Use maintenance trends, incident patterns, pre-op failures, depreciation to assess risk. Be specific about failure types.`,
+          messages:[{role:"user",content:`Analyse ${assetData.length} assets:
+${JSON.stringify(assetData)}`}],
+        }),
+      });
+      const data=await response.json();
+      const text=data.content?.find(b=>b.type==="text")?.text||"[]";
+      setPredictions(JSON.parse(text.replace(/```json|```/g,"").trim()));
+    } catch(err) { setAiError("Analysis failed: "+err.message); }
+    setAiLoading(false);
+  };
+
+  const rrScores = assets.map(a=>({asset:a,...getReplaceRepairScore(a)})).sort((a,b)=>b.score-a.score);
+  const opScores = getOperatorScores();
+  const RISK_COLOR={Low:C.success,Medium:C.warn,High:"#F97316",Critical:C.red};
+  const RISK_BG={Low:"#ECFDF5",Medium:"#FFFBEB",High:"#FFEDD5",Critical:"#FEE2E2"};
+
+  return (
+    <div>
+      <PageTitle title="ASSET INTELLIGENCE" sub="AI-powered predictive analytics — making decisions BuildSmart and Syspro can't"/>
+
+      {/* SECTION TABS */}
+      <div style={{display:"flex",gap:4,marginBottom:24,borderBottom:`1px solid ${C.border}`,paddingBottom:0}}>
+        {[
+          {id:"predict",label:"🔮 Predictive Maintenance",desc:"AI failure prediction"},
+          {id:"rr",     label:"⚖ Replace vs Repair",      desc:"Financial decision engine"},
+          {id:"ops",    label:"👷 Operator Performance",   desc:"Ranked operator scoring"},
+        ].map(s=>(
+          <button key={s.id} onClick={()=>setActiveSection(s.id)} style={{padding:"10px 20px",border:"none",background:"none",cursor:"pointer",borderBottom:`2px solid ${activeSection===s.id?C.red:"transparent"}`,fontSize:13,fontWeight:activeSection===s.id?700:400,color:activeSection===s.id?C.red:C.muted,fontFamily:"'DM Sans',sans-serif",marginBottom:-1,transition:"all 0.15s"}}>
+            {s.label}
+            <div style={{fontSize:10,color:C.mutedLt,fontWeight:400,marginTop:1}}>{s.desc}</div>
+          </button>
+        ))}
+      </div>
+
+      {/* PREDICTIVE MAINTENANCE */}
+      {activeSection==="predict"&&(
+        <div>
+          <div style={{background:"linear-gradient(135deg,#111318 0%,#1C2030 100%)",borderRadius:12,padding:"28px 32px",marginBottom:24,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:16}}>
+            <div>
+              <div style={{fontSize:18,fontWeight:800,color:"white",fontFamily:"'Barlow Condensed',sans-serif",marginBottom:6}}>✦ AI Predictive Failure Analysis</div>
+              <div style={{fontSize:13,color:"#9CA3AF",maxWidth:560}}>Claude analyses maintenance history, incident patterns, pre-op failure records and cost trends to predict which assets are likely to fail — and when. Catches issues before breakdowns cost you downtime.</div>
+            </div>
+            <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:10}}>
+              <Btn onClick={runPredictiveAI} style={{background:C.red,color:"white",border:"none",fontSize:13,padding:"11px 24px"}}>
+                {aiLoading?"Analysing fleet…":predictions?"🔄 Re-analyse":"🔮 Analyse Fleet Now"}
+              </Btn>
+              {predictions&&<div style={{fontSize:11,color:"#6B7280"}}>{predictions.length} assets analysed</div>}
+            </div>
+          </div>
+
+          {aiError&&<div style={{background:"#FEE2E2",border:`1px solid ${C.redBorder}`,borderRadius:9,padding:"14px 18px",marginBottom:16,fontSize:13,color:C.red}}>⚠ {aiError}</div>}
+
+          {aiLoading&&(
+            <div style={{display:"flex",flexDirection:"column",gap:12}}>
+              <style>{"@keyframes spin{to{transform:rotate(360deg)}}"}</style>
+              {assets.slice(0,4).map((a,i)=>(
+                <div key={i} style={{background:C.white,borderRadius:10,border:`1px solid ${C.border}`,padding:"20px 24px",display:"flex",alignItems:"center",gap:16}}>
+                  <div style={{width:44,height:44,borderRadius:9,background:C.surface,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                    <div style={{width:20,height:20,borderRadius:"50%",border:`3px solid ${C.red}`,borderTopColor:"transparent",animation:"spin 0.8s linear infinite"}}/>
+                  </div>
+                  <div><div style={{fontWeight:700,color:C.text,fontSize:13}}>{a.name}</div><div style={{fontSize:11,color:C.muted}}>Analysing patterns…</div></div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {!predictions&&!aiLoading&&(
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:14}}>
+              {assets.map(a=>{
+                const am=[...maint].filter(m=>m.assetId===a.id).sort((x,y)=>y.date>x.date?1:-1);
+                const daysSince=am[0]?Math.round((new Date()-new Date(am[0].date))/(1000*60*60*24)):null;
+                const d=depreciate(a);
+                const pct=Number(a.purchaseCost)>0?Math.round(d.accumulated/Number(a.purchaseCost)*100):0;
+                const recentInc=incidents.filter(i=>i.assetId===a.id&&last6.some(mo=>i.date?.startsWith(mo)));
+                return (
+                  <div key={a.id} style={{background:C.white,borderRadius:10,border:`1px solid ${C.border}`,padding:"18px 20px"}}>
+                    <div style={{fontWeight:700,color:C.text,marginBottom:10}}>{a.name} <span style={{fontSize:11,color:C.muted,fontWeight:400}}>· {a.category}</span></div>
+                    {[
+                      {l:"Days since service",v:daysSince!==null?`${daysSince}d`:"Never",alert:daysSince>180},
+                      {l:"Incidents (6mo)",   v:recentInc.length,                         alert:recentInc.length>1},
+                      {l:"Depreciation",      v:`${pct}%`,                                alert:pct>75},
+                      {l:"Open job cards",    v:jobCards.filter(j=>j.assetId===a.id&&!["Complete","Cancelled","Invoiced"].includes(j.status)).length,alert:false},
+                    ].map(item=>(
+                      <div key={item.l} style={{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:`1px solid ${C.surface}`}}>
+                        <span style={{fontSize:12,color:C.muted}}>{item.l}</span>
+                        <span style={{fontSize:12,fontWeight:700,color:item.alert?C.red:C.text}}>{item.v}</span>
+                      </div>
+                    ))}
+                    <div style={{marginTop:10,fontSize:11,color:C.mutedLt,fontStyle:"italic"}}>Click "Analyse Fleet Now" for AI predictions ↑</div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {predictions&&!aiLoading&&(
+            <div style={{display:"flex",flexDirection:"column",gap:14}}>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:4}}>
+                {[{label:"Critical",color:C.red},{label:"High",color:"#F97316"},{label:"Medium",color:C.warn},{label:"Low",color:C.success}].map(s=>(
+                  <div key={s.label} style={{background:C.white,borderRadius:9,border:`1px solid ${C.border}`,padding:"14px 16px",borderTop:`3px solid ${s.color}`}}>
+                    <div style={{fontSize:9,color:C.muted,textTransform:"uppercase",letterSpacing:0.8,marginBottom:4}}>{s.label} Risk</div>
+                    <div style={{fontSize:28,fontWeight:800,color:s.color,fontFamily:"'Barlow Condensed',sans-serif"}}>{predictions.filter(p=>p.risk===s.label).length}</div>
+                  </div>
+                ))}
+              </div>
+              {[...predictions].sort((a,b)=>b.risk_score-a.risk_score).map(p=>{
+                const asset=assets.find(a=>a.id===p.id);
+                const isExp=expandedAsset===p.id;
+                return (
+                  <div key={p.id} style={{background:C.white,borderRadius:10,border:`1px solid ${p.risk==="Critical"?C.redBorder:p.risk==="High"?"#FED7AA":C.border}`,overflow:"hidden"}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"16px 20px",cursor:"pointer",background:p.risk==="Critical"?"#FEF2F2":p.risk==="High"?"#FFF7ED":C.white}} onClick={()=>setExpandedAsset(isExp?null:p.id)}>
+                      <div style={{display:"flex",alignItems:"center",gap:12}}>
+                        <div style={{width:44,height:44,borderRadius:9,background:RISK_BG[p.risk]||C.surface,border:`1px solid ${RISK_COLOR[p.risk]||C.border}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:900,color:RISK_COLOR[p.risk]||C.muted,fontFamily:"'Barlow Condensed',sans-serif"}}>{p.risk_score}</div>
+                        <div>
+                          <div style={{fontWeight:700,fontSize:14,color:C.text}}>{asset?.name||p.id}</div>
+                          <div style={{fontSize:11,color:C.muted}}>{asset?.category} · {p.likely_failure_type}</div>
+                        </div>
+                      </div>
+                      <div style={{display:"flex",alignItems:"center",gap:10}}>
+                        <div style={{textAlign:"right"}}>
+                          <div style={{background:RISK_BG[p.risk],color:RISK_COLOR[p.risk],border:`1px solid ${RISK_COLOR[p.risk]}`,borderRadius:20,padding:"3px 12px",fontSize:11,fontWeight:700,marginBottom:3}}>{p.risk} Risk</div>
+                          <div style={{fontSize:11,color:C.muted}}>{p.predicted_failure_window}</div>
+                        </div>
+                        <span style={{color:C.muted,fontSize:14}}>{isExp?"▲":"▼"}</span>
+                      </div>
+                    </div>
+                    {isExp&&(
+                      <div style={{borderTop:`1px solid ${C.border}`,padding:"18px 20px"}}>
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:14}}>
+                          <div style={{background:C.surface,borderRadius:8,padding:"12px 14px"}}>
+                            <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:0.5,marginBottom:6}}>Key Signals Detected</div>
+                            {(p.key_signals||[]).map((sig,i)=><div key={i} style={{fontSize:12,color:C.text,padding:"3px 0"}}><span style={{color:RISK_COLOR[p.risk]}}>› </span>{sig}</div>)}
+                          </div>
+                          <div style={{background:C.surface,borderRadius:8,padding:"12px 14px"}}>
+                            <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:0.5,marginBottom:6}}>Cost Estimate</div>
+                            <div style={{marginBottom:8}}><div style={{fontSize:10,color:C.success,fontWeight:700}}>Preventive (act now):</div><div style={{fontSize:13,fontWeight:700,color:C.text}}>{p.estimated_preventive_cost}</div></div>
+                            <div><div style={{fontSize:10,color:C.red,fontWeight:700}}>Reactive (if it fails):</div><div style={{fontSize:13,fontWeight:700,color:C.red}}>{p.estimated_failure_cost}</div></div>
+                          </div>
+                        </div>
+                        <div style={{background:RISK_BG[p.risk]||C.infoBg,border:`1px solid ${RISK_COLOR[p.risk]||C.border}`,borderRadius:8,padding:"12px 14px"}}>
+                          <div style={{fontSize:10,color:RISK_COLOR[p.risk]||C.info,fontWeight:700,textTransform:"uppercase",letterSpacing:0.5,marginBottom:5}}>Recommended Action</div>
+                          <div style={{fontSize:13,color:C.text,fontWeight:500}}>{p.recommended_action}</div>
+                          <div style={{fontSize:10,color:C.mutedLt,marginTop:6}}>AI Confidence: {p.confidence}</div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* REPLACE VS REPAIR */}
+      {activeSection==="rr"&&(
+        <div>
+          <div style={{background:C.surface,borderRadius:10,border:`1px solid ${C.border}`,padding:"16px 20px",marginBottom:20}}>
+            <div style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:10}}>How the Replace vs Repair Score is calculated</div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:10}}>
+              {[{f:"Expense Ratio",w:"35%",d:"Lifetime costs vs purchase price"},{f:"Maintenance Trend",w:"15%",d:"Cost acceleration over 6 months"},{f:"Incident Rate",w:"15%",d:"Breakdowns per year"},{f:"Depreciation",w:"20%",d:"% of value written off"},{f:"Condition Rating",w:"10%",d:"Latest assessment score"},{f:"Open Job Cards",w:"5%",d:"Active unresolved issues"}].map(x=>(
+                <div key={x.f} style={{background:C.white,borderRadius:7,padding:"10px 12px",border:`1px solid ${C.border}`}}>
+                  <div style={{fontSize:11,fontWeight:700,color:C.text}}>{x.f} <span style={{color:C.red}}>{x.w}</span></div>
+                  <div style={{fontSize:10,color:C.muted,marginTop:2}}>{x.d}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:20}}>
+            {[{label:"Replace Now",count:rrScores.filter(s=>s.score>=75).length,color:C.red,icon:"🔴"},{label:"Plan Replacement",count:rrScores.filter(s=>s.score>=50&&s.score<75).length,color:"#F97316",icon:"🟠"},{label:"Monitor Closely",count:rrScores.filter(s=>s.score>=30&&s.score<50).length,color:C.warn,icon:"🟡"},{label:"Keep — Good Value",count:rrScores.filter(s=>s.score<30).length,color:C.success,icon:"🟢"}].map(s=>(
+              <div key={s.label} style={{background:C.white,borderRadius:9,border:`1px solid ${C.border}`,padding:"14px 16px",borderLeft:`4px solid ${s.color}`}}>
+                <div style={{fontSize:18,marginBottom:4}}>{s.icon}</div>
+                <div style={{fontSize:22,fontWeight:800,color:s.color,fontFamily:"'Barlow Condensed',sans-serif"}}>{s.count}</div>
+                <div style={{fontSize:10,color:C.muted,fontWeight:600,marginTop:2}}>{s.label}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:12}}>
+            {rrScores.map(({asset:a,score,recommendation:rec,expenseRatio,maintTrend,recentMC,priorMC,incidentRate,deprPct,totalExpenses,bookValue,pc,latestCond,openJCs})=>(
+              <div key={a.id} style={{background:C.white,borderRadius:10,border:`1px solid ${score>=75?C.redBorder:score>=50?"#FED7AA":C.border}`,overflow:"hidden"}}>
+                <div style={{display:"flex",alignItems:"center",padding:"16px 20px",gap:16,flexWrap:"wrap",background:score>=75?"#FEF2F2":score>=50?"#FFF7ED":C.white}}>
+                  <div style={{width:56,height:56,borderRadius:"50%",border:`3px solid ${rec.color}`,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",flexShrink:0,background:rec.bg}}>
+                    <div style={{fontSize:16,fontWeight:900,color:rec.color,fontFamily:"'Barlow Condensed',sans-serif",lineHeight:1}}>{score}</div>
+                    <div style={{fontSize:7,color:rec.color,fontWeight:700}}>SCORE</div>
+                  </div>
+                  <div style={{flex:1,minWidth:160}}>
+                    <div style={{fontWeight:800,fontSize:14,color:C.text}}>{a.name}</div>
+                    <div style={{fontSize:11,color:C.muted}}>{a.category} · {a.location}</div>
+                    <div style={{marginTop:6}}><span style={{background:rec.bg,color:rec.color,border:`1px solid ${rec.color}`,borderRadius:20,padding:"2px 10px",fontSize:11,fontWeight:700}}>{rec.icon} {rec.label}</span></div>
+                  </div>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8}}>
+                    {[{l:"Purchase Cost",v:fmt(pc),c:C.muted},{l:"Book Value",v:fmt(bookValue),c:bookValue/Math.max(1,pc)<0.2?C.red:C.success},{l:"Expenses",v:fmt(totalExpenses),c:expenseRatio>0.75?C.red:expenseRatio>0.4?C.warn:C.muted},{l:"Ratio",v:`${(expenseRatio*100).toFixed(0)}%`,c:expenseRatio>0.75?C.red:expenseRatio>0.4?C.warn:C.success},{l:"Maint 6mo",v:fmt(recentMC),c:C.muted},{l:"Maint Trend",v:priorMC>0?`${maintTrend>0?"+":""}${(maintTrend*100).toFixed(0)}%`:"—",c:maintTrend>0.2?C.red:maintTrend>0?C.warn:C.success}].map(item=>(
+                      <div key={item.l} style={{background:C.surface,borderRadius:6,padding:"6px 10px"}}>
+                        <div style={{fontSize:9,color:C.muted,textTransform:"uppercase",letterSpacing:0.4}}>{item.l}</div>
+                        <div style={{fontSize:11,fontWeight:700,color:item.c}}>{item.v}</div>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{width:110,flexShrink:0}}>
+                    <div style={{fontSize:9,color:C.muted,marginBottom:4,textTransform:"uppercase",letterSpacing:0.5}}>Replace pressure</div>
+                    <div style={{height:8,background:C.border,borderRadius:4}}>
+                      <div style={{height:"100%",width:`${score}%`,background:score>=75?C.red:score>=50?"#F97316":score>=30?C.warn:C.success,borderRadius:4,transition:"width 0.5s"}}/>
+                    </div>
+                    <div style={{display:"flex",justifyContent:"space-between",marginTop:3,fontSize:8,color:C.mutedLt}}><span>Keep</span><span>Replace</span></div>
+                  </div>
+                </div>
+                <div style={{padding:"8px 20px",borderTop:`1px solid ${C.border}`,background:C.surface,display:"flex",gap:16,flexWrap:"wrap"}}>
+                  <span style={{fontSize:11,color:C.muted}}>Condition: <strong style={{color:latestCond?.rating==="Poor"||latestCond?.rating==="Write-Off Recommended"?C.red:C.text}}>{latestCond?.rating||"Not assessed"}</strong></span>
+                  <span style={{fontSize:11,color:C.muted}}>Incidents/yr: <strong style={{color:incidentRate>4?C.red:incidentRate>2?C.warn:C.text}}>{incidentRate.toFixed(1)}</strong></span>
+                  <span style={{fontSize:11,color:C.muted}}>Depreciation: <strong style={{color:deprPct>0.75?C.red:deprPct>0.5?C.warn:C.text}}>{(deprPct*100).toFixed(0)}%</strong></span>
+                  <span style={{fontSize:11,color:C.muted}}>Open JCs: <strong style={{color:openJCs>0?C.warn:C.text}}>{openJCs}</strong></span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* OPERATOR PERFORMANCE */}
+      {activeSection==="ops"&&(
+        <div>
+          {opScores.length===0?(
+            <div style={{background:C.white,borderRadius:10,border:`1px solid ${C.border}`,padding:"48px",textAlign:"center"}}>
+              <div style={{fontSize:32,marginBottom:12,opacity:0.3}}>👷</div>
+              <div style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:6}}>No operator data yet</div>
+              <div style={{fontSize:13,color:C.muted}}>Add employees, log timesheets, complete pre-op checklists and record incidents to generate operator performance scores.</div>
+            </div>
+          ):(
+            <div>
+              {opScores.length>=3&&(
+                <div style={{marginBottom:24}}>
+                  <div style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:14}}>Top Performers</div>
+                  <div style={{display:"flex",gap:14,justifyContent:"center",flexWrap:"wrap",alignItems:"flex-end"}}>
+                    {[1,0,2].map(i=>{
+                      if(!opScores[i]) return null;
+                      const op=opScores[i];
+                      const medals=["🥇","🥈","🥉"];
+                      const heights=[120,150,100];
+                      const podColors=[C.warn,"#9CA3AF","#CD7F32"];
+                      return (
+                        <div key={op.name} style={{display:"flex",flexDirection:"column",alignItems:"center",width:170}}>
+                          <div style={{fontSize:22,marginBottom:4}}>{medals[i]}</div>
+                          <div style={{fontWeight:800,fontSize:13,color:C.text,marginBottom:2,textAlign:"center"}}>{op.name}</div>
+                          <div style={{fontSize:28,fontWeight:900,color:op.gradeColor,fontFamily:"'Barlow Condensed',sans-serif"}}>{op.totalScore}</div>
+                          <div style={{fontSize:11,color:C.muted,marginBottom:8}}>Grade {op.grade}</div>
+                          <div style={{width:"100%",height:heights[i],background:`${podColors[i]}33`,borderRadius:"6px 6px 0 0",border:`2px solid ${podColors[i]}`,display:"flex",alignItems:"flex-start",justifyContent:"center",paddingTop:10}}>
+                            <span style={{fontSize:28}}>{medals[i]}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+              <div style={{background:C.white,borderRadius:10,border:`1px solid ${C.border}`,overflow:"hidden"}}>
+                <div style={{padding:"14px 20px",borderBottom:`1px solid ${C.border}`,background:C.surface,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <div style={{fontSize:13,fontWeight:700,color:C.text}}>Full Operator Ranking</div>
+                  <div style={{fontSize:11,color:C.muted}}>Scored on: pre-op compliance (35) · incident rate (35) · activity (20) · fuel efficiency (10)</div>
+                </div>
+                {opScores.map((op,rank)=>(
+                  <div key={op.name} style={{borderBottom:`1px solid ${C.surface}`,padding:"14px 20px",display:"flex",alignItems:"center",gap:14,background:rank===0?"#FFFBEB":C.white,flexWrap:"wrap"}}>
+                    <div style={{width:28,fontSize:13,fontWeight:800,color:rank<3?C.warn:C.mutedLt,textAlign:"center",flexShrink:0}}>#{rank+1}</div>
+                    <div style={{width:42,height:42,borderRadius:9,background:op.gradeColor+"22",border:`2px solid ${op.gradeColor}`,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,fontSize:18,color:op.gradeColor,fontFamily:"'Barlow Condensed',sans-serif",flexShrink:0}}>{op.grade}</div>
+                    <div style={{flex:1,minWidth:120}}>
+                      <div style={{fontWeight:700,fontSize:13,color:C.text}}>{op.name}</div>
+                      <div style={{display:"flex",gap:0,marginTop:5,height:5,borderRadius:3,overflow:"hidden"}}>
+                        <div style={{width:`${op.preOpScore/35*100}%`,background:C.success,opacity:0.8}}/>
+                        <div style={{width:`${op.incScore/35*100}%`,background:"#7c3aed",opacity:0.8}}/>
+                        <div style={{width:`${op.actScore/20*100}%`,background:C.info,opacity:0.8}}/>
+                        <div style={{width:`${op.fuelScore/10*100}%`,background:C.warn,opacity:0.8}}/>
+                        <div style={{flex:1,background:C.border}}/>
+                      </div>
+                    </div>
+                    <div style={{textAlign:"center",flexShrink:0}}>
+                      <div style={{fontSize:24,fontWeight:900,color:op.gradeColor,fontFamily:"'Barlow Condensed',sans-serif",lineHeight:1}}>{op.totalScore}</div>
+                      <div style={{fontSize:9,color:C.muted}}>/ 100</div>
+                    </div>
+                    <div style={{display:"flex",gap:6,flexWrap:"wrap",flexShrink:0}}>
+                      {[
+                        {l:"Pre-Op",v:op.preOpCompliance!==null?`${op.preOpCompliance.toFixed(0)}%`:"—",alert:op.preOpCompliance!==null&&op.preOpCompliance<80},
+                        {l:"Incidents",v:op.incidents,alert:op.incidents>2},
+                        {l:"Hours",v:`${op.totalHours.toFixed(0)}h`,alert:false},
+                        {l:"Defects",v:op.defectPreops,alert:op.defectPreops>3},
+                        {l:"Downtime",v:`${op.totalDowntime.toFixed(0)}h`,alert:op.totalDowntime>8},
+                      ].map(stat=>(
+                        <div key={stat.l} style={{background:stat.alert?C.redLight:C.surface,border:`1px solid ${stat.alert?C.redBorder:C.border}`,borderRadius:7,padding:"5px 10px",textAlign:"center"}}>
+                          <div style={{fontSize:9,color:stat.alert?C.red:C.muted,textTransform:"uppercase",letterSpacing:0.4}}>{stat.l}</div>
+                          <div style={{fontSize:12,fontWeight:700,color:stat.alert?C.red:C.text}}>{stat.v}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div style={{marginTop:14,fontSize:11,color:C.muted,textAlign:"center",fontStyle:"italic"}}>Scores auto-update as timesheets, pre-op checks and incidents are logged. More data = more accurate scores.</div>
+            </div>
+          )}
+        </div>
       )}
     </div>
   );
@@ -13186,6 +13596,18 @@ export default function App() {
               getAssetCurrentSite={getAssetCurrentSite}
               C={C} Btn={Btn} Pill={Pill} KPI={KPI} PageTitle={PageTitle}
               setTab={setTab}
+            />
+          )}
+
+          {/* ASSET INTELLIGENCE */}
+          {tab === "AssetIntel" && (
+            <AssetIntelTab
+              assets={assets} maint={maint} fuel={fuel} incidents={incidents}
+              conditions={conditions} preops={preops} spares={spares}
+              jobCards={jobCards} assignments={assignments} employees={employees}
+              ts={ts} company={company} today={today} fmt={fmt}
+              depreciate={depreciate} getAssetExpenses={getAssetExpenses}
+              C={C} Btn={Btn} Pill={Pill} KPI={KPI} PageTitle={PageTitle}
             />
           )}
 
