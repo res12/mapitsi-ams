@@ -171,6 +171,7 @@ const MODULE_NAMES = {
   mcw_transfers: "Asset Transfer Log",
   mcw_jobcards: "Job Cards",
   mcw_pos: "Purchase Orders",
+  mcw_hirereqs: "Hire Requisitions",
 };
 const COMPLIANCE_TYPES = [
   "Roadworthy Certificate",
@@ -223,6 +224,7 @@ const NAV = [
   { id: "Suppliers", ico: "⊡" },
   { id: "Budgets", ico: "₿" },
   { id: "Hire", ico: "⊠" },
+  { id: "HireReqs", ico: "📋" },
   { id: "Disposals", ico: "⊖" },
   { id: "Analytics", ico: "▲" },
   { id: "FuelRecon", ico: "⊟" },
@@ -264,6 +266,7 @@ const NAV_LABELS = {
   Suppliers: "Suppliers",
   Budgets: "Budget",
   Hire: "Equipment Hire",
+  HireReqs: "Hire Requisitions",
   Disposals: "Disposals",
   Analytics: "Analytics",
   FuelRecon: "Fuel Recon",
@@ -1187,7 +1190,7 @@ const DEFAULT_SITES = [
 const NAV_SECTIONS = [
   { label: "Overview", ids: ["Dashboard"] },
   { label: "Assets", ids: ["Assets","Depreciation","Conditions","Warranties","Assignments","Disposals","Spares","Transfers"] },
-  { label: "Operations", ids: ["Maintenance","JobCards","Schedules","Fuel","FuelRecon","Incidents","Hire","PreOp"] },
+  { label: "Operations", ids: ["Maintenance","JobCards","Schedules","Fuel","FuelRecon","Incidents","Hire","HireReqs","PreOp"] },
   { label: "People", ids: ["Employees", "Timesheets", "Leave", "Projects"] },
   { label: "Finance", ids: ["Budgets", "Compliance", "Reports", "SARSReport", "ProjectCost", "PurchaseOrders"] },
   { label: "Intelligence", ids: ["Analytics", "AIAssist", "FleetMap", "AssetIntel", "FuelRecon", "Utilisation", "Alerts", "AssetExpenses"] },
@@ -2290,6 +2293,470 @@ Portfolio: Cost R${totalCost.toLocaleString()} | Book Value R${Math.round(totalB
 }
 
 
+// ── PHOTO CAPTURE ─────────────────────────────────────────────────────────
+function PhotoCapture({ photos = [], onChange, maxPhotos = 3 }) {
+  const compressImage = (file) => new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        const MAX = 800;
+        let w = img.width, h = img.height;
+        if (w > h && w > MAX) { h = Math.round(h * MAX / w); w = MAX; }
+        else if (h > MAX) { w = Math.round(w * MAX / h); h = MAX; }
+        canvas.width = w; canvas.height = h;
+        canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL("image/jpeg", 0.72));
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+
+  const handleAdd = async (e) => {
+    const files = [...e.target.files].slice(0, maxPhotos - photos.length);
+    const compressed = await Promise.all(files.map(compressImage));
+    onChange([...photos, ...compressed]);
+    e.target.value = "";
+  };
+
+  return (
+    <div>
+      <div style={{ display:"flex", gap:8, flexWrap:"wrap", marginBottom: photos.length > 0 ? 8 : 0 }}>
+        {photos.map((src, i) => (
+          <div key={i} style={{ position:"relative", width:80, height:80, borderRadius:7, overflow:"hidden", border:"1px solid #E4E6EE", flexShrink:0 }}>
+            <img src={src} alt="" style={{ width:"100%", height:"100%", objectFit:"cover" }}/>
+            <button onClick={() => onChange(photos.filter((_,j) => j !== i))}
+              style={{ position:"absolute", top:2, right:2, background:"rgba(0,0,0,0.6)", color:"white", border:"none", borderRadius:"50%", width:20, height:20, fontSize:11, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center" }}>×</button>
+          </div>
+        ))}
+        {photos.length < maxPhotos && (
+          <label style={{ width:80, height:80, borderRadius:7, border:"2px dashed #D1D5DB", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", cursor:"pointer", background:"#F9FAFB", flexShrink:0 }}>
+            <span style={{ fontSize:22, opacity:0.4 }}>📷</span>
+            <span style={{ fontSize:9, color:"#9CA3AF", marginTop:2, textAlign:"center", lineHeight:1.2 }}>Add{"\n"}Photo</span>
+            <input type="file" accept="image/*" capture="environment" multiple onChange={handleAdd} style={{ display:"none" }}/>
+          </label>
+        )}
+      </div>
+      {photos.length > 0 && <div style={{ fontSize:10, color:"#9CA3AF" }}>{photos.length}/{maxPhotos} attached · Compressed for storage</div>}
+    </div>
+  );
+}
+
+// ── PHOTO GALLERY ─────────────────────────────────────────────────────────
+function PhotoGallery({ photos = [], label = "Photos" }) {
+  const [viewing, setViewing] = React.useState(null);
+  if (!photos || photos.length === 0) return null;
+  return (
+    <div style={{ marginBottom:14 }}>
+      <div style={{ fontSize:11, fontWeight:700, color:"#6B7280", textTransform:"uppercase", letterSpacing:0.8, marginBottom:8 }}>{label} ({photos.length})</div>
+      <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+        {photos.map((src, i) => (
+          <div key={i} onClick={() => setViewing(src)} style={{ width:72, height:72, borderRadius:7, overflow:"hidden", border:"1px solid #E4E6EE", cursor:"pointer", flexShrink:0 }}>
+            <img src={src} alt="" style={{ width:"100%", height:"100%", objectFit:"cover" }}/>
+          </div>
+        ))}
+      </div>
+      {viewing && (
+        <div onClick={() => setViewing(null)} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.88)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:99999, cursor:"zoom-out" }}>
+          <img src={viewing} alt="" style={{ maxWidth:"92vw", maxHeight:"88vh", borderRadius:10 }}/>
+          <button onClick={() => setViewing(null)} style={{ position:"fixed", top:20, right:24, background:"rgba(255,255,255,0.15)", border:"none", color:"white", fontSize:22, cursor:"pointer", borderRadius:"50%", width:40, height:40 }}>✕</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── HIRE REQUISITIONS ─────────────────────────────────────────────────────
+const HIRE_REQ_STATUS = ["Draft","Submitted","Approved","Rejected","Dispatched","Active","Returned","Closed"];
+const HIRE_REQ_PRIORITY = ["Low","Normal","Urgent","Critical"];
+const HIRE_REQ_PLANT_TYPES = ["TLB","Excavator","Grader","Compactor","Tipper Truck","Generator","Trailer","Crane","Scaffolding","Concrete Mixer","Compressor","Water Bowser","Other"];
+
+function HireReqsTab({ hireReqs, setHireReqs, assets, projects, employees, suppliers, currentUser,
+  persist, add, update, del, logAudit, toast, can, fmt, today, C, inp, Field, Row2, Btn, Card, Tbl, TR, Empty, KPI, Pill, PageTitle }) {
+
+  const dHR = {
+    plantType:"TLB", assetId:"", isExternal:false, externalDescription:"",
+    supplierId:"", projectId:"", site:"", requestedBy:"", approvedBy:"",
+    dateRequired:today(), dateFrom:today(), dateTo:"", estimatedDays:"",
+    dailyRate:"", purpose:"", priority:"Normal", status:"Draft",
+    dispatchNotes:"", returnNotes:"", actualReturnDate:"", invoiceNumber:"",
+    rejectionReason:"", notes:"", reqNo:"",
+  };
+
+  const [form, setForm] = useState(dHR);
+  const [showModal, setShowModal] = useState(false);
+  const [viewReq, setViewReq] = useState(null);
+  const [filterStatus, setFilterStatus] = useState("All");
+
+  const genReqNo = () => `HR-${new Date().getFullYear()}-${String(hireReqs.length+1).padStart(4,"0")}`;
+  const awaitingApproval = hireReqs.filter(r=>r.status==="Submitted").length;
+  const active = hireReqs.filter(r=>r.status==="Active").length;
+  const openPending = hireReqs.filter(r=>["Submitted","Approved","Dispatched","Active"].includes(r.status)).length;
+  const totalCost = hireReqs.reduce((s,r)=>s+Number(r.estimatedDays||0)*Number(r.dailyRate||0),0);
+  const filtered = filterStatus==="All" ? hireReqs : hireReqs.filter(r=>r.status===filterStatus);
+  const statusColor = s => s==="Active"||s==="Dispatched"?"green":s==="Approved"?"blue":s==="Submitted"?"yellow":s==="Rejected"?"red":"gray";
+  const priorityColor = p => p==="Critical"?"red":p==="Urgent"?"yellow":p==="Normal"?"blue":"gray";
+  const canApprove = can(currentUser,"canEdit");
+
+  const quickAction = (req, newStatus, extra={}) => {
+    const updated = { ...req, status: newStatus, ...extra };
+    update("mcw_hirereqs", setHireReqs, hireReqs, req.id, updated);
+    setViewReq(updated);
+    toast(`Requisition ${newStatus.toLowerCase()}.`);
+  };
+
+  return (
+    <div>
+      <PageTitle title="HIRE REQUISITIONS" sub="Formal plant request → approval → dispatch workflow"
+        action={can(currentUser,"canAdd") && (
+          <Btn onClick={() => { setForm({...dHR, reqNo:genReqNo()}); setShowModal(true); }}>＋ Raise Requisition</Btn>
+        )}
+      />
+
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(155px,1fr))",gap:14,marginBottom:22}}>
+        <KPI label="Total Requisitions" value={hireReqs.length}    color={C.info}    icon="📋" sub="all time"/>
+        <KPI label="Awaiting Approval"  value={awaitingApproval}   color={awaitingApproval>0?C.warn:C.success} icon="⏳" sub="pending review"/>
+        <KPI label="Currently Active"   value={active}             color={active>0?C.success:C.muted}          icon="▶" sub="on site"/>
+        <KPI label="Open / In Progress" value={openPending}        color={openPending>0?C.warn:C.success}      icon="⚑" sub="needs action"/>
+        <KPI label="Est. Total Cost"    value={fmt(totalCost)}     color={C.muted}   icon="₽" sub="all requisitions"/>
+      </div>
+
+      {awaitingApproval>0&&(
+        <div style={{background:C.warnBg,border:"1px solid #FDE68A",borderRadius:10,padding:"12px 18px",marginBottom:18,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div style={{fontSize:13,fontWeight:700,color:C.warn}}>⏳ {awaitingApproval} requisition{awaitingApproval!==1?"s":""} awaiting approval</div>
+          <Btn size="sm" variant="outline" onClick={()=>setFilterStatus("Submitted")}>Review Now →</Btn>
+        </div>
+      )}
+
+      {/* STATUS PIPELINE */}
+      {filterStatus==="All"&&hireReqs.length>0&&(
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(100px,1fr))",gap:8,marginBottom:18}}>
+          {["Draft","Submitted","Approved","Dispatched","Active","Returned","Closed","Rejected"].map(s=>{
+            const count=hireReqs.filter(r=>r.status===s).length;
+            const col={Draft:C.muted,Submitted:C.warn,Approved:C.info,Dispatched:"#7c3aed",Active:C.success,Returned:"#6B7280",Closed:"#9CA3AF",Rejected:C.red}[s];
+            return (
+              <div key={s} onClick={()=>setFilterStatus(s)} style={{background:C.white,borderRadius:8,padding:"10px 12px",border:`1px solid ${count>0?col:C.border}`,cursor:"pointer",textAlign:"center",opacity:count===0?0.45:1,transition:"all 0.15s"}}>
+                <div style={{fontSize:20,fontWeight:800,color:col,fontFamily:"'Barlow Condensed',sans-serif"}}>{count}</div>
+                <div style={{fontSize:9,color:C.muted,fontWeight:600,textTransform:"uppercase",letterSpacing:0.5,marginTop:1}}>{s}</div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* FILTER CHIPS */}
+      <div style={{display:"flex",gap:6,marginBottom:16,flexWrap:"wrap"}}>
+        {["All",...HIRE_REQ_STATUS].map(s=>(
+          <button key={s} onClick={()=>setFilterStatus(s)} style={{padding:"5px 13px",borderRadius:20,fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",border:`1px solid ${filterStatus===s?C.red:C.border}`,background:filterStatus===s?C.red:C.white,color:filterStatus===s?"white":C.muted}}>
+            {s}{s!=="All"&&hireReqs.filter(r=>r.status===s).length>0?` (${hireReqs.filter(r=>r.status===s).length})`:""}
+          </button>
+        ))}
+      </div>
+
+      {filtered.length===0 ? (
+        <Empty icon="📋" title={filterStatus==="All"?"No hire requisitions yet":`No ${filterStatus} requisitions`}
+          desc="Raise a formal hire requisition for any plant — internal assets or external hire. Full approval trail from request to return."
+          btn={<Btn onClick={()=>{setForm({...dHR,reqNo:genReqNo()});setShowModal(true);}}>Raise First Requisition</Btn>}/>
+      ) : (
+        <Card>
+          <Tbl cols={["Req No.","Plant / Asset","Project","Priority","Status","Requested By","Date From","Est. Cost",""]}>
+            {[...filtered].sort((a,b)=>b.dateFrom>a.dateFrom?1:-1).map((r,i)=>{
+              const asset=assets.find(a=>a.id===r.assetId);
+              const project=projects.find(p=>p.id===r.projectId);
+              const est=Number(r.estimatedDays||0)*Number(r.dailyRate||0);
+              const overdue=r.status==="Submitted"&&Math.round((new Date()-new Date(r.dateFrom))/(1000*60*60*24))>2;
+              return (
+                <TR key={r.id} stripe={i%2!==0} cells={[
+                  <div>
+                    <div style={{fontFamily:"monospace",fontSize:11,fontWeight:700,color:C.red}}>{r.reqNo||`HR-${r.id.slice(-6).toUpperCase()}`}</div>
+                    <div style={{fontSize:10,color:C.muted}}>{r.dateFrom}</div>
+                  </div>,
+                  <div>
+                    <div style={{fontWeight:700,fontSize:12,color:C.text}}>{r.isExternal?r.externalDescription||r.plantType:asset?.name||r.plantType}</div>
+                    <div style={{fontSize:10,color:C.mutedLt}}>{r.isExternal?"External Hire":"Internal Asset"}</div>
+                  </div>,
+                  <span style={{fontSize:12,color:C.muted}}>{project?.name||r.site||"—"}</span>,
+                  <Pill text={r.priority} color={priorityColor(r.priority)}/>,
+                  <div>
+                    <Pill text={r.status} color={statusColor(r.status)}/>
+                    {overdue&&<div style={{fontSize:9,color:C.red,fontWeight:700,marginTop:2}}>OVERDUE</div>}
+                  </div>,
+                  <span style={{fontSize:12,color:C.muted}}>{r.requestedBy||"—"}</span>,
+                  <span style={{fontSize:12,color:C.muted}}>{r.dateFrom}{r.dateTo?` → ${r.dateTo}`:""}</span>,
+                  <span style={{fontWeight:700,color:est>0?C.text:C.mutedLt}}>{est>0?fmt(est):"—"}</span>,
+                  <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+                    <button onClick={()=>setViewReq(r)} style={{color:C.info,background:"none",border:"none",cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"'DM Sans',sans-serif"}}>View</button>
+                    {canApprove&&r.status==="Submitted"&&<button onClick={()=>quickAction(r,"Approved",{approvedBy:currentUser?.name||""})} style={{color:C.success,background:"none",border:"none",cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"'DM Sans',sans-serif"}}>✓ Approve</button>}
+                    {canApprove&&r.status==="Submitted"&&<button onClick={()=>{const reason=window.prompt("Rejection reason:");if(reason)quickAction(r,"Rejected",{rejectionReason:reason});}} style={{color:C.red,background:"none",border:"none",cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"'DM Sans',sans-serif"}}>✕ Reject</button>}
+                    {canApprove&&r.status==="Approved"&&<button onClick={()=>quickAction(r,"Dispatched")} style={{color:"#7c3aed",background:"none",border:"none",cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"'DM Sans',sans-serif"}}>Dispatch</button>}
+                    {canApprove&&r.status==="Dispatched"&&<button onClick={()=>quickAction(r,"Active")} style={{color:C.success,background:"none",border:"none",cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"'DM Sans',sans-serif"}}>Set Active</button>}
+                    {canApprove&&r.status==="Active"&&<button onClick={()=>quickAction(r,"Returned",{actualReturnDate:today()})} style={{color:C.warn,background:"none",border:"none",cursor:"pointer",fontSize:11,fontWeight:600,fontFamily:"'DM Sans',sans-serif"}}>Return</button>}
+                    {can(currentUser,"canDelete")&&<button onClick={()=>del("mcw_hirereqs",setHireReqs,hireReqs,r.id)} style={{color:C.muted,background:"none",border:"none",cursor:"pointer",fontSize:14,padding:"0 4px"}}>×</button>}
+                  </div>,
+                ]}/>
+              );
+            })}
+          </Tbl>
+        </Card>
+      )}
+
+      {/* FORM MODAL */}
+      {showModal&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(17,19,24,0.7)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:9999,padding:20,backdropFilter:"blur(3px)"}}>
+          <div style={{background:C.white,borderRadius:14,width:"100%",maxWidth:680,maxHeight:"93vh",overflowY:"auto",boxShadow:"0 24px 80px rgba(0,0,0,0.3)",border:`1px solid ${C.border}`}}>
+            <div style={{padding:"20px 28px",borderBottom:`1px solid ${C.border}`,background:C.surface,display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,zIndex:10}}>
+              <div>
+                <div style={{fontSize:15,fontWeight:700,color:C.text}}>{form.id?"Edit Requisition":`New Hire Requisition${form.reqNo?` — ${form.reqNo}`:""}`}</div>
+                <div style={{fontSize:12,color:C.muted,marginTop:2}}>Request plant or equipment — full approval and dispatch trail</div>
+              </div>
+              <button onClick={()=>setShowModal(false)} style={{background:"none",border:"none",fontSize:18,cursor:"pointer",color:C.muted}}>✕</button>
+            </div>
+            <div style={{padding:"22px 28px"}}>
+              {/* Source toggle */}
+              <div style={{marginBottom:18}}>
+                <div style={{fontSize:11,fontWeight:700,color:C.muted,textTransform:"uppercase",letterSpacing:0.8,marginBottom:8}}>Plant Source</div>
+                <div style={{display:"flex",gap:8}}>
+                  <button onClick={()=>setForm({...form,isExternal:false})} style={{flex:1,padding:"10px",borderRadius:8,border:`2px solid ${!form.isExternal?C.red:C.border}`,background:!form.isExternal?C.redLight:C.white,color:!form.isExternal?C.red:C.muted,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",textAlign:"center"}}>
+                    ⊟ Internal Asset<div style={{fontSize:10,fontWeight:400,marginTop:2}}>Use from own fleet</div>
+                  </button>
+                  <button onClick={()=>setForm({...form,isExternal:true})} style={{flex:1,padding:"10px",borderRadius:8,border:`2px solid ${form.isExternal?C.red:C.border}`,background:form.isExternal?C.redLight:C.white,color:form.isExternal?C.red:C.muted,fontWeight:700,fontSize:12,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",textAlign:"center"}}>
+                    ⊞ External Hire<div style={{fontSize:10,fontWeight:400,marginTop:2}}>Hire from supplier</div>
+                  </button>
+                </div>
+              </div>
+
+              {!form.isExternal ? (
+                <Field label="Select Asset from Fleet" required>
+                  <select {...inp} value={form.assetId} onChange={e=>setForm({...form,assetId:e.target.value,plantType:assets.find(a=>a.id===e.target.value)?.category||form.plantType})}>
+                    <option value="">— Select Asset —</option>
+                    {assets.filter(a=>a.status==="Active").map(a=><option key={a.id} value={a.id}>{a.name} · {a.category} · {a.location}</option>)}
+                  </select>
+                </Field>
+              ) : (
+                <Row2>
+                  <Field label="Plant Type Required" required>
+                    <select {...inp} value={form.plantType} onChange={e=>setForm({...form,plantType:e.target.value})}>
+                      {HIRE_REQ_PLANT_TYPES.map(t=><option key={t}>{t}</option>)}
+                    </select>
+                  </Field>
+                  <Field label="Description / Spec">
+                    <input {...inp} value={form.externalDescription} onChange={e=>setForm({...form,externalDescription:e.target.value})} placeholder="e.g. 20T Excavator with operator"/>
+                  </Field>
+                </Row2>
+              )}
+
+              {form.isExternal&&(
+                <Field label="Preferred Supplier (optional)">
+                  <select {...inp} value={form.supplierId||""} onChange={e=>setForm({...form,supplierId:e.target.value})}>
+                    <option value="">— Any Supplier —</option>
+                    {suppliers.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
+                  </select>
+                </Field>
+              )}
+
+              <Row2>
+                <Field label="Project" required>
+                  <select {...inp} value={form.projectId||""} onChange={e=>setForm({...form,projectId:e.target.value})}>
+                    <option value="">— Select Project —</option>
+                    {projects.filter(p=>p.status==="Active").map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                </Field>
+                <Field label="Site / Delivery Location">
+                  <input {...inp} value={form.site} onChange={e=>setForm({...form,site:e.target.value})} placeholder="e.g. Site A"/>
+                </Field>
+              </Row2>
+
+              <Row2>
+                <Field label="Priority" required>
+                  <select {...inp} value={form.priority} onChange={e=>setForm({...form,priority:e.target.value})}>
+                    {HIRE_REQ_PRIORITY.map(p=><option key={p}>{p}</option>)}
+                  </select>
+                </Field>
+                <Field label="Status">
+                  <select {...inp} value={form.status} onChange={e=>setForm({...form,status:e.target.value})}>
+                    {HIRE_REQ_STATUS.map(s=><option key={s}>{s}</option>)}
+                  </select>
+                </Field>
+              </Row2>
+
+              <Row2>
+                <Field label="Required From" required>
+                  <input type="date" {...inp} value={form.dateFrom} onChange={e=>setForm({...form,dateFrom:e.target.value})}/>
+                </Field>
+                <Field label="Required To">
+                  <input type="date" {...inp} value={form.dateTo} onChange={e=>setForm({...form,dateTo:e.target.value})}/>
+                </Field>
+              </Row2>
+
+              <Row2>
+                <Field label="Estimated Days">
+                  <input type="number" {...inp} value={form.estimatedDays} onChange={e=>setForm({...form,estimatedDays:e.target.value})} placeholder="e.g. 5"/>
+                </Field>
+                <Field label="Daily Rate (R)">
+                  <input type="number" {...inp} value={form.dailyRate} onChange={e=>setForm({...form,dailyRate:e.target.value})} placeholder="0.00"/>
+                </Field>
+              </Row2>
+
+              {form.estimatedDays&&form.dailyRate&&(
+                <div style={{background:C.infoBg,border:"1px solid #BFDBFE",borderRadius:7,padding:"8px 14px",marginBottom:14,fontSize:12,color:C.info,fontWeight:600}}>
+                  Estimated total: {fmt(Number(form.estimatedDays)*Number(form.dailyRate))} ({form.estimatedDays} days × {fmt(form.dailyRate)}/day)
+                </div>
+              )}
+
+              <Field label="Requested By" required>
+                {employees.length>0?(
+                  <select {...inp} value={form.requestedBy} onChange={e=>setForm({...form,requestedBy:e.target.value})}>
+                    <option value="">— Select Employee —</option>
+                    {employees.filter(e=>e.status==="Active").map(e=><option key={e.id} value={e.name}>{e.name} · {e.role}</option>)}
+                  </select>
+                ):(
+                  <input {...inp} value={form.requestedBy} onChange={e=>setForm({...form,requestedBy:e.target.value})} placeholder="Person requesting the plant"/>
+                )}
+              </Field>
+
+              <Field label="Purpose / Reason" required>
+                <input {...inp} value={form.purpose} onChange={e=>setForm({...form,purpose:e.target.value})} placeholder="Describe what the plant is needed for and why..."/>
+              </Field>
+
+              <Field label="Notes (optional)">
+                <input {...inp} value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})} placeholder="Safety considerations, special requirements..."/>
+              </Field>
+
+              <div style={{display:"flex",gap:10,marginTop:20,paddingTop:16,borderTop:`1px solid ${C.border}`}}>
+                <Btn style={{flex:1,justifyContent:"center"}} onClick={()=>{
+                  if((!form.assetId&&!form.plantType)||!form.projectId||!form.requestedBy||!form.purpose){
+                    toast("Fill in plant, project, requested by and purpose.","error"); return;
+                  }
+                  if(form.id){
+                    update("mcw_hirereqs",setHireReqs,hireReqs,form.id,form);
+                    toast("Requisition updated.");
+                  } else {
+                    add("mcw_hirereqs",setHireReqs,hireReqs,{...form,status:"Submitted"});
+                    toast(`Requisition ${form.reqNo||""} submitted for approval.`);
+                  }
+                  setShowModal(false);
+                }}>
+                  {form.id?"Save Changes":"Submit for Approval"}
+                </Btn>
+                <Btn variant="ghost" onClick={()=>{
+                  if((!form.assetId&&!form.plantType)||!form.requestedBy){
+                    toast("Fill in plant and requested by.","error"); return;
+                  }
+                  add("mcw_hirereqs",setHireReqs,hireReqs,{...form,status:"Draft"});
+                  toast("Saved as draft.");
+                  setShowModal(false);
+                }}>Save as Draft</Btn>
+                <Btn variant="ghost" onClick={()=>setShowModal(false)}>Cancel</Btn>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* VIEW MODAL */}
+      {viewReq&&(()=>{
+        const asset=assets.find(a=>a.id===viewReq.assetId);
+        const project=projects.find(p=>p.id===viewReq.projectId);
+        const supplier=suppliers.find(s=>s.id===viewReq.supplierId);
+        const est=Number(viewReq.estimatedDays||0)*Number(viewReq.dailyRate||0);
+        const statusOrder=["Draft","Submitted","Approved","Dispatched","Active","Returned","Closed"];
+        const currentIdx=statusOrder.indexOf(viewReq.status);
+        return (
+          <div style={{position:"fixed",inset:0,background:"rgba(17,19,24,0.75)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:9999,padding:20,backdropFilter:"blur(4px)"}}>
+            <div style={{background:C.white,borderRadius:14,width:"100%",maxWidth:680,maxHeight:"93vh",overflowY:"auto",boxShadow:"0 32px 100px rgba(0,0,0,0.4)"}}>
+              {/* HEADER */}
+              <div style={{background:C.dark,padding:"22px 28px",borderRadius:"14px 14px 0 0"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                  <div>
+                    <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:6}}>
+                      <div style={{background:C.red,borderRadius:5,padding:"3px 10px"}}><span style={{color:"white",fontSize:11,fontWeight:900,fontFamily:"monospace"}}>{viewReq.reqNo||`HR-${viewReq.id.slice(-6).toUpperCase()}`}</span></div>
+                      <Pill text={viewReq.status} color={statusColor(viewReq.status)}/>
+                      <Pill text={viewReq.priority} color={priorityColor(viewReq.priority)}/>
+                    </div>
+                    <div style={{fontSize:18,fontWeight:800,color:"white",fontFamily:"'Barlow Condensed',sans-serif"}}>{viewReq.isExternal?viewReq.externalDescription||viewReq.plantType:asset?.name||viewReq.plantType}</div>
+                    <div style={{fontSize:11,color:"#6B7280",marginTop:2}}>{viewReq.isExternal?"External Hire":"Internal Asset"}{project?` · ${project.name}`:""}{viewReq.site?` · ${viewReq.site}`:""}</div>
+                  </div>
+                  <button onClick={()=>setViewReq(null)} style={{background:"none",border:"none",color:"#6B7280",fontSize:18,cursor:"pointer"}}>✕</button>
+                </div>
+              </div>
+
+              <div style={{padding:"22px 28px"}}>
+                {/* WORKFLOW STEPS */}
+                <div style={{display:"flex",alignItems:"center",marginBottom:22,overflowX:"auto",paddingBottom:4}}>
+                  {statusOrder.map((s,i)=>{
+                    const stepIdx=statusOrder.indexOf(s);
+                    const isDone=stepIdx<=currentIdx;
+                    const isCurrent=viewReq.status===s;
+                    return (
+                      <React.Fragment key={s}>
+                        <div style={{display:"flex",flexDirection:"column",alignItems:"center",flexShrink:0}}>
+                          <div style={{width:26,height:26,borderRadius:"50%",background:isCurrent?C.red:isDone?C.success:"#E5E7EB",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700,color:"white"}}>{isDone?isCurrent?"●":"✓":"·"}</div>
+                          <div style={{fontSize:8,color:isCurrent?C.red:isDone?C.success:C.muted,fontWeight:isCurrent?700:400,marginTop:2,whiteSpace:"nowrap"}}>{s}</div>
+                        </div>
+                        {i<statusOrder.length-1&&<div style={{height:2,width:20,background:stepIdx<currentIdx?C.success:"#E5E7EB",flexShrink:0,marginBottom:14}}/>}
+                      </React.Fragment>
+                    );
+                  })}
+                  {viewReq.status==="Rejected"&&<><div style={{height:2,width:20,background:"#E5E7EB",flexShrink:0,marginBottom:14}}/><div style={{display:"flex",flexDirection:"column",alignItems:"center",flexShrink:0}}><div style={{width:26,height:26,borderRadius:"50%",background:C.red,display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700,color:"white"}}>✕</div><div style={{fontSize:8,color:C.red,fontWeight:700,marginTop:2}}>Rejected</div></div></>}
+                </div>
+
+                {/* DETAILS */}
+                <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:16}}>
+                  {[
+                    {l:"Requested By",   v:viewReq.requestedBy||"—"},
+                    {l:"Approved By",    v:viewReq.approvedBy||"Pending"},
+                    {l:"Date From",      v:viewReq.dateFrom||"—"},
+                    {l:"Date To",        v:viewReq.dateTo||"—"},
+                    {l:"Est. Days",      v:viewReq.estimatedDays?`${viewReq.estimatedDays} days`:"—"},
+                    {l:"Daily Rate",     v:viewReq.dailyRate?fmt(viewReq.dailyRate)+"/day":"—"},
+                    {l:"Est. Total",     v:est>0?fmt(est):"—"},
+                    {l:"Supplier",       v:supplier?.name||"—"},
+                    {l:"Invoice No.",    v:viewReq.invoiceNumber||"—"},
+                  ].map(item=>(
+                    <div key={item.l} style={{background:C.surface,borderRadius:7,padding:"9px 12px"}}>
+                      <div style={{fontSize:9,color:C.muted,textTransform:"uppercase",letterSpacing:0.5,marginBottom:2}}>{item.l}</div>
+                      <div style={{fontSize:12,fontWeight:600,color:C.text}}>{item.v}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {viewReq.purpose&&<div style={{background:C.infoBg,border:"1px solid #BFDBFE",borderRadius:8,padding:"12px 14px",marginBottom:12}}><div style={{fontSize:10,color:C.info,fontWeight:700,textTransform:"uppercase",letterSpacing:0.5,marginBottom:4}}>Purpose</div><div style={{fontSize:13,color:C.text}}>{viewReq.purpose}</div></div>}
+                {viewReq.rejectionReason&&<div style={{background:C.redLight,border:`1px solid ${C.redBorder}`,borderRadius:8,padding:"12px 14px",marginBottom:12}}><div style={{fontSize:10,color:C.red,fontWeight:700,textTransform:"uppercase",letterSpacing:0.5,marginBottom:4}}>Rejection Reason</div><div style={{fontSize:13,color:C.text}}>{viewReq.rejectionReason}</div></div>}
+                {viewReq.notes&&<div style={{background:C.surface,borderRadius:8,padding:"12px 14px",marginBottom:12}}><div style={{fontSize:10,color:C.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:0.5,marginBottom:4}}>Notes</div><div style={{fontSize:13,color:C.text}}>{viewReq.notes}</div></div>}
+
+                {/* SIGNATURES */}
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:14,marginTop:20,paddingTop:18,borderTop:`2px solid ${C.border}`}}>
+                  {["Requested By","Approved By","Plant Manager"].map(role=>(
+                    <div key={role} style={{textAlign:"center"}}>
+                      <div style={{height:40,borderBottom:`1px solid ${C.text}`,marginBottom:5}}/>
+                      <div style={{fontSize:10,color:C.muted,fontWeight:600}}>{role}</div>
+                      <div style={{fontSize:9,color:C.mutedLt,marginTop:1}}>Signature & Date</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* QUICK ACTIONS */}
+                <div style={{marginTop:16,display:"flex",gap:8,flexWrap:"wrap"}}>
+                  {canApprove&&viewReq.status==="Submitted"&&<Btn size="sm" onClick={()=>quickAction(viewReq,"Approved",{approvedBy:currentUser?.name||""})}>✓ Approve</Btn>}
+                  {canApprove&&viewReq.status==="Submitted"&&<Btn size="sm" variant="outline" onClick={()=>{const r=window.prompt("Rejection reason:");if(r)quickAction(viewReq,"Rejected",{rejectionReason:r});}}>✕ Reject</Btn>}
+                  {canApprove&&viewReq.status==="Approved"&&<Btn size="sm" onClick={()=>quickAction(viewReq,"Dispatched")}>▶ Dispatch</Btn>}
+                  {canApprove&&viewReq.status==="Dispatched"&&<Btn size="sm" onClick={()=>quickAction(viewReq,"Active")}>● Set Active</Btn>}
+                  {canApprove&&viewReq.status==="Active"&&<Btn size="sm" variant="outline" onClick={()=>quickAction(viewReq,"Returned",{actualReturnDate:today()})}>↩ Mark Returned</Btn>}
+                  {canApprove&&viewReq.status==="Returned"&&<Btn size="sm" variant="ghost" onClick={()=>quickAction(viewReq,"Closed")}>Close</Btn>}
+                  {can(currentUser,"canEdit")&&!["Closed","Rejected"].includes(viewReq.status)&&<Btn size="sm" variant="outline" onClick={()=>{setForm({...dHR,...viewReq});setViewReq(null);setShowModal(true);}}>Edit</Btn>}
+                  <Btn size="sm" variant="ghost" onClick={()=>setViewReq(null)}>Close</Btn>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+    </div>
+  );
+}
+
 function FleetMapTab({ assets, maint, fuel, incidents, conditions, transfers, preops, assignments,
   spares, jobCards, siteNames, today, fmt, depreciate, getDaysSinceLastTransfer,
   getAssetCurrentSite, C, Btn, Pill, KPI, PageTitle, setTab }) {
@@ -3224,6 +3691,7 @@ export default function App() {
       ["preops",      setPreops],
       ["jobcards",    setJobCards],
       ["pos",         setPurchaseOrders],
+      ["hirereqs",    setHireReqs],
     ];
     const unsubscribers = realTimeCollections.map(([name, setter]) => {
       return onSnapshot(collection(db, name), (snapshot) => {
@@ -3288,6 +3756,7 @@ export default function App() {
       ["transfers",   setTransfers],
       ["jobcards",    setJobCards],
       ["pos",         setPurchaseOrders],
+      ["hirereqs",    setHireReqs],
     ];
 
     for (const [name, setter] of collections) {
@@ -3373,6 +3842,7 @@ export default function App() {
     description: "",
     nextDueDate: "",
     performedBy: "",
+    photos: [],
   };
   const dF = {
     assetId: "",
@@ -3487,6 +3957,7 @@ export default function App() {
     repairCost: "",
     reportedBy: "",
     resolved: "No",
+    photos: [],
   };
   const dSup = {
     name: "",
@@ -3550,6 +4021,7 @@ export default function App() {
   const [transF, setTransF] = useState(dTrans);
   const [jobCards, setJobCards] = useState([]);
   const [purchaseOrders, setPurchaseOrders] = useState([]);
+  const [hireReqs, setHireReqs] = useState([]);
   const dCon = {
     name: "",
     tradingName: "",
@@ -3588,6 +4060,7 @@ export default function App() {
     odometerReading: "",
     fuelLevel: "Full",
     supervisorName: "",
+    photos: [],
   };
   const [preopF, setPreopF] = useState(dPreop);
   const [af, setAf] = useState(dA);
@@ -13611,6 +14084,19 @@ export default function App() {
             />
           )}
 
+          {/* HIRE REQUISITIONS */}
+          {tab === "HireReqs" && (
+            <HireReqsTab
+              hireReqs={hireReqs} setHireReqs={setHireReqs}
+              assets={assets} projects={projects} employees={employees}
+              suppliers={suppliers} currentUser={currentUser}
+              persist={persist} add={add} update={update} del={del}
+              logAudit={logAudit} toast={toast} can={can} fmt={fmt} today={today}
+              C={C} inp={inp} Field={Field} Row2={Row2} Btn={Btn} Card={Card}
+              Tbl={Tbl} TR={TR} Empty={Empty} KPI={KPI} Pill={Pill} PageTitle={PageTitle}
+            />
+          )}
+
           {/* SETTINGS */}
           {tab === "Settings" && (
             <div>
@@ -16772,6 +17258,10 @@ export default function App() {
               onChange={(e) => setMf({ ...mf, nextDueDate: e.target.value })}
             />
           </Field>
+          <Field label="Photos (optional)">
+            <PhotoCapture photos={mf.photos||[]} onChange={p=>setMf({...mf,photos:p})} maxPhotos={3}/>
+            <div style={{fontSize:11,color:"#9CA3AF",marginTop:4}}>Attach photos of the work done, parts replaced or condition of the asset.</div>
+          </Field>
           <div style={{ display: "flex", gap: 10 }}>
             <Btn
               style={{ flex: 1 }}
@@ -17474,6 +17964,11 @@ export default function App() {
                 <input {...inp} value={preopF.supervisorName} onChange={e=>setPreopF({...preopF,supervisorName:e.target.value})} placeholder="Name of supervisor who witnessed the check"/>
               </Field>
 
+              <Field label="Photos (optional)">
+                <PhotoCapture photos={preopF.photos||[]} onChange={p=>setPreopF({...preopF,photos:p})} maxPhotos={4}/>
+                <div style={{fontSize:11,color:"#9CA3AF",marginTop:4}}>Attach photos of defects found or overall condition of the asset.</div>
+              </Field>
+
               {/* SUBMIT */}
               <div style={{display:"flex",gap:10,marginTop:4}}>
                 <Btn style={{flex:1,justifyContent:"center"}} onClick={()=>{
@@ -18122,6 +18617,10 @@ export default function App() {
               <option value="No">No — Still Open</option>
               <option value="Yes">Yes — Resolved</option>
             </select>
+          </Field>
+          <Field label="Photos / Evidence (optional)">
+            <PhotoCapture photos={incF.photos||[]} onChange={p=>setIncF({...incF,photos:p})} maxPhotos={5}/>
+            <div style={{fontSize:11,color:"#9CA3AF",marginTop:4}}>Attach photos of damage, the scene or evidence. Up to 5 photos.</div>
           </Field>
           <div style={{ display: "flex", gap: 10 }}>
             <Btn
