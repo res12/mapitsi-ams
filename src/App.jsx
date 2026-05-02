@@ -247,6 +247,7 @@ const NAV = [
   { id: "AIAssist", ico: "✦" },
   { id: "FleetMap", ico: "◉" },
   { id: "AssetIntel", ico: "◈" },
+  { id: "AssetTags", ico: "⬡" },
   { id: "Settings", ico: "⚙" },
 ];
 const NAV_LABELS = {
@@ -287,6 +288,7 @@ const NAV_LABELS = {
   PurchaseOrders: "Purchase Orders",
   JobCards: "Job Cards",
   AIAssist: "AI Plant Assistant",
+  AssetTags: "Asset Tags & Scanner",
   FleetMap: "Fleet Visual Map",
   AssetIntel: "Asset Intelligence",
   Settings: "Settings",
@@ -1189,7 +1191,7 @@ const DEFAULT_SITES = [
 ];
 const NAV_SECTIONS = [
   { label: "Overview", ids: ["Dashboard"] },
-  { label: "Assets", ids: ["Assets","Depreciation","Conditions","Warranties","Assignments","Disposals","Spares","Transfers"] },
+  { label: "Assets", ids: ["Assets","Depreciation","Conditions","Warranties","Assignments","Disposals","Spares","Transfers","AssetTags"] },
   { label: "Operations", ids: ["Maintenance","JobCards","Schedules","Fuel","FuelRecon","Incidents","Hire","HireReqs","PreOp"] },
   { label: "People", ids: ["Employees", "Timesheets", "Leave", "Projects"] },
   { label: "Finance", ids: ["Budgets", "Compliance", "Reports", "SARSReport", "ProjectCost", "PurchaseOrders"] },
@@ -2292,6 +2294,470 @@ Portfolio: Cost R${totalCost.toLocaleString()} | Book Value R${Math.round(totalB
   );
 }
 
+
+// ── QR CODE GENERATOR (pure JS, no library needed) ────────────────────────
+// Generates a simple QR-style visual tag using asset ID encoded as a URL
+// Uses the browser's built-in URL + a lightweight inline QR via a data URI approach
+// We encode a deep-link URL that opens the scanner page with the asset pre-selected
+
+function AssetQRCode({ assetId, assetName, size = 120 }) {
+  const [qrDataUrl, setQrDataUrl] = React.useState(null);
+
+  React.useEffect(() => {
+    // Build the scan URL — when scanned on phone, opens app to the scanner tab with asset pre-loaded
+    const scanUrl = `${window.location.origin}${window.location.pathname}?scan=${assetId}`;
+
+    // Use QR Server API (free, no key needed, works offline-ish via cache)
+    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodeURIComponent(scanUrl)}&bgcolor=ffffff&color=111318&qzone=2&format=png`;
+    setQrDataUrl(qrUrl);
+  }, [assetId, size]);
+
+  return (
+    <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:6 }}>
+      {qrDataUrl ? (
+        <img src={qrDataUrl} alt={`QR for ${assetName}`}
+          style={{ width:size, height:size, borderRadius:6, border:"1px solid #E4E6EE" }}
+          onError={(e) => { e.target.style.display="none"; }}
+        />
+      ) : (
+        <div style={{ width:size, height:size, borderRadius:6, border:"1px solid #E4E6EE", background:"#F5F6FA", display:"flex", alignItems:"center", justifyContent:"center" }}>
+          <div style={{ fontSize:10, color:"#9CA3AF" }}>Loading…</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── PRINTABLE ASSET TAG ───────────────────────────────────────────────────
+function PrintableTag({ asset, company, depreciate, C }) {
+  const d = depreciate(asset);
+  const CAT_ICONS = {
+    "Vehicle":"🚗","TLB":"🚜","Excavator":"⛏","Compactor":"🔩",
+    "Generator":"⚡","Trailer":"🚛","Grader":"🏗","Tipper Truck":"🚚",
+    "Tools":"🔧","Other":"⚙",
+  };
+  return (
+    <div className="print-tag" style={{
+      width:280, background:"white", borderRadius:10,
+      border:`2px solid #111318`, overflow:"hidden",
+      fontFamily:"'DM Sans',sans-serif", pageBreakInside:"avoid",
+    }}>
+      {/* TAG HEADER */}
+      <div style={{ background:"#111318", padding:"10px 14px", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+        <div>
+          <div style={{ fontSize:9, color:"#6B7280", letterSpacing:1, textTransform:"uppercase", marginBottom:2 }}>{(company.name||"Mapitsi Civil Works").toUpperCase()}</div>
+          <div style={{ fontSize:13, fontWeight:800, color:"white", fontFamily:"'Barlow Condensed',sans-serif", letterSpacing:0.5 }}>{asset.name}</div>
+        </div>
+        <span style={{ fontSize:22 }}>{CAT_ICONS[asset.category]||"⚙"}</span>
+      </div>
+      {/* QR + INFO */}
+      <div style={{ display:"flex", gap:0 }}>
+        <div style={{ padding:"12px 10px 12px 14px", flex:1 }}>
+          {[
+            { l:"Category",    v:asset.category },
+            { l:"Serial / Reg",v:asset.serialNumber||"—" },
+            { l:"Location",    v:asset.location },
+            { l:"Book Value",  v:`R${Math.round(d.bookValue).toLocaleString()}` },
+            { l:"Status",      v:asset.status },
+          ].map(item=>(
+            <div key={item.l} style={{ marginBottom:4 }}>
+              <div style={{ fontSize:7.5, color:"#9CA3AF", textTransform:"uppercase", letterSpacing:0.5 }}>{item.l}</div>
+              <div style={{ fontSize:10, fontWeight:700, color:"#1A1F2E" }}>{item.v}</div>
+            </div>
+          ))}
+        </div>
+        <div style={{ padding:"12px 14px 12px 0", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:4 }}>
+          <AssetQRCode assetId={asset.id} assetName={asset.name} size={88}/>
+          <div style={{ fontSize:7, color:"#9CA3AF", textAlign:"center", maxWidth:90 }}>Scan to open<br/>on your phone</div>
+        </div>
+      </div>
+      {/* BARCODE-STYLE ID */}
+      <div style={{ background:"#F5F6FA", borderTop:"1px solid #E4E6EE", padding:"6px 14px", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+        <div style={{ fontFamily:"monospace", fontSize:9, color:"#6B7280", letterSpacing:1 }}>{asset.id.slice(-12).toUpperCase()}</div>
+        <div style={{ fontSize:8, color:"#9CA3AF" }}>PLANT MANAGEMENT SYSTEM</div>
+      </div>
+    </div>
+  );
+}
+
+// ── ASSET TAGS & SCANNER TAB ──────────────────────────────────────────────
+function AssetTagsTab({ assets, maint, fuel, incidents, preops, jobCards, spares,
+  conditions, assignments, projects, employees, suppliers, company,
+  currentUser, add, update, persist, toast, can, fmt, today, depreciate,
+  getAssetExpenses, C, Btn, Pill, KPI, PageTitle, setTab,
+  setModal, setMf, setFf, setIncF, setPreopF, setCondF,
+  dM, dF, dInc, dPreop, dCond }) {
+
+  const [activeSection, setActiveSection] = React.useState("scanner");
+  const [scanInput, setScanInput] = React.useState("");
+  const [scannedAsset, setScannedAsset] = React.useState(null);
+  const [searchQ, setSearchQ] = React.useState("");
+  const [selectedForPrint, setSelectedForPrint] = React.useState([]);
+  const [scanError, setScanError] = React.useState(null);
+  const inputRef = React.useRef(null);
+
+  // On mount — check if URL has ?scan= parameter (from QR scan)
+  React.useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const scannedId = params.get("scan");
+    if (scannedId) {
+      const found = assets.find(a => a.id === scannedId);
+      if (found) {
+        setScannedAsset(found);
+        setActiveSection("scanner");
+        // Clean URL without reload
+        window.history.replaceState({}, "", window.location.pathname);
+      }
+    }
+  }, [assets]);
+
+  const handleScan = (val) => {
+    const v = (val || scanInput).trim();
+    if (!v) return;
+    // Try matching by ID, serial number, or name
+    const found = assets.find(a =>
+      a.id === v ||
+      a.id.slice(-12).toUpperCase() === v.toUpperCase() ||
+      a.serialNumber?.toUpperCase() === v.toUpperCase() ||
+      a.name.toUpperCase() === v.toUpperCase()
+    );
+    if (found) {
+      setScannedAsset(found);
+      setScanError(null);
+      setScanInput("");
+    } else {
+      setScanError(`No asset found matching "${v}". Try scanning again or search by name.`);
+    }
+  };
+
+  // Handle USB barcode scanner (sends keystrokes + Enter)
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter") { handleScan(); }
+  };
+
+  const CAT_ICONS = {
+    "Vehicle":"🚗","TLB":"🚜","Excavator":"⛏","Compactor":"🔩",
+    "Generator":"⚡","Trailer":"🚛","Grader":"🏗","Tipper Truck":"🚚",
+    "Tools":"🔧","Other":"⚙",
+  };
+
+  const filteredAssets = assets.filter(a =>
+    !searchQ ||
+    a.name.toLowerCase().includes(searchQ.toLowerCase()) ||
+    a.category.toLowerCase().includes(searchQ.toLowerCase()) ||
+    (a.serialNumber||"").toLowerCase().includes(searchQ.toLowerCase()) ||
+    a.location.toLowerCase().includes(searchQ.toLowerCase())
+  );
+
+  const togglePrint = (id) => {
+    setSelectedForPrint(prev => prev.includes(id) ? prev.filter(x=>x!==id) : [...prev, id]);
+  };
+
+  const printSelected = () => {
+    const tagsToPrint = selectedForPrint.length > 0
+      ? assets.filter(a => selectedForPrint.includes(a.id))
+      : assets;
+    window._printAssets = tagsToPrint;
+    window.print();
+  };
+
+  // Quick action tile
+  const QuickAction = ({ icon, label, color, onClick }) => (
+    <button onClick={onClick} style={{
+      background:"white", border:`1px solid ${C.border}`, borderRadius:10,
+      padding:"14px 10px", display:"flex", flexDirection:"column",
+      alignItems:"center", gap:6, cursor:"pointer", flex:1, minWidth:80,
+      transition:"all 0.15s", fontFamily:"'DM Sans',sans-serif",
+    }}
+      onMouseEnter={e=>{ e.currentTarget.style.borderColor=color; e.currentTarget.style.background=color+"11"; }}
+      onMouseLeave={e=>{ e.currentTarget.style.borderColor=C.border; e.currentTarget.style.background="white"; }}>
+      <span style={{ fontSize:22 }}>{icon}</span>
+      <span style={{ fontSize:10, fontWeight:700, color:C.text, textAlign:"center", lineHeight:1.3 }}>{label}</span>
+    </button>
+  );
+
+  // Asset detail card after scan
+  const ScannedAssetCard = ({ a }) => {
+    const d = depreciate(a);
+    const pct = Number(a.purchaseCost)>0 ? Math.round(d.accumulated/Number(a.purchaseCost)*100) : 0;
+    const e = getAssetExpenses(a.id);
+    const latestCond = [...conditions].filter(c=>c.assetId===a.id).sort((x,y)=>y.assessmentDate>x.assessmentDate?1:-1)[0];
+    const openJCs = jobCards.filter(j=>j.assetId===a.id&&!["Complete","Cancelled","Invoiced"].includes(j.status));
+    const openInc = incidents.filter(i=>i.assetId===a.id&&i.resolved==="No");
+    const lastMaint = [...maint].filter(m=>m.assetId===a.id).sort((x,y)=>y.date>x.date?1:-1)[0];
+    const lastFuel = [...fuel].filter(f=>f.assetId===a.id).sort((x,y)=>y.date>x.date?1:-1)[0];
+    const todayPreop = preops.find(p=>p.assetId===a.id&&p.date===today());
+    const assignedOp = [...assignments].filter(x=>x.assetId===a.id&&!x.endDate).sort((x,y)=>y.startDate>x.startDate?1:-1)[0];
+    const daysSinceService = lastMaint ? Math.round((new Date()-new Date(lastMaint.date))/(1000*60*60*24)) : null;
+
+    return (
+      <div style={{ maxWidth:560, margin:"0 auto" }}>
+        {/* ASSET HEADER */}
+        <div style={{ background:C.dark, borderRadius:12, padding:"20px 24px", marginBottom:14 }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
+            <div>
+              <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:8 }}>
+                <span style={{ fontSize:28 }}>{CAT_ICONS[a.category]||"⚙"}</span>
+                <div>
+                  <div style={{ fontSize:20, fontWeight:800, color:"white", fontFamily:"'Barlow Condensed',sans-serif" }}>{a.name}</div>
+                  <div style={{ fontSize:11, color:"#6B7280" }}>{a.category} · {a.serialNumber||"No serial"} · {a.location}</div>
+                </div>
+              </div>
+              <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+                <Pill text={a.status} color={a.status==="Active"?"green":a.status==="Under Maintenance"?"yellow":"gray"}/>
+                {openJCs.length>0 && <Pill text={`${openJCs.length} Open JC${openJCs.length!==1?"s":""}`} color="yellow"/>}
+                {openInc.length>0 && <Pill text={`${openInc.length} Open Incident${openInc.length!==1?"s":""}`} color="red"/>}
+                {!todayPreop && a.status==="Active" && <Pill text="Pre-Op Needed" color="yellow"/>}
+                {todayPreop && <Pill text="Pre-Op Done ✓" color="green"/>}
+              </div>
+            </div>
+            <button onClick={()=>setScannedAsset(null)} style={{ background:"rgba(255,255,255,0.1)", border:"none", color:"white", borderRadius:7, padding:"6px 12px", cursor:"pointer", fontSize:12, fontFamily:"'DM Sans',sans-serif" }}>← Back</button>
+          </div>
+        </div>
+
+        {/* ALERTS */}
+        {(openJCs.length>0||openInc.length>0) && (
+          <div style={{ background:C.redLight, border:`1px solid ${C.redBorder}`, borderRadius:10, padding:"12px 16px", marginBottom:14 }}>
+            {openInc.map(i=>(
+              <div key={i.id} style={{ fontSize:12, fontWeight:700, color:C.red, marginBottom:2 }}>⚠ Open Incident: {i.type} — {i.description?.slice(0,60)}</div>
+            ))}
+            {openJCs.map(j=>(
+              <div key={j.id} style={{ fontSize:12, fontWeight:600, color:C.warn }}>🔧 Job Card ({j.priority}): {j.description?.slice(0,60)}</div>
+            ))}
+          </div>
+        )}
+
+        {/* STATS GRID */}
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:10, marginBottom:14 }}>
+          {[
+            { l:"Book Value",      v:fmt(d.bookValue),                     c:d.bookValue>0?C.success:C.muted },
+            { l:"Depreciated",     v:`${pct}%`,                            c:pct>75?C.red:pct>50?C.warn:C.success },
+            { l:"Lifetime Spend",  v:fmt(e.totalExpenses),                 c:C.muted },
+            { l:"Last Service",    v:daysSinceService!==null?`${daysSinceService}d ago`:"Never", c:daysSinceService!==null&&daysSinceService>180?C.red:C.text },
+            { l:"Last Fuel",       v:lastFuel?.date||"None logged",        c:C.muted },
+            { l:"Condition",       v:latestCond?.rating||"Not assessed",   c:latestCond?.rating==="Poor"||latestCond?.rating==="Write-Off Recommended"?C.red:C.success },
+            { l:"Assigned To",     v:assignedOp?.employeeName||"Unassigned", c:C.text },
+            { l:"Maint Records",   v:maint.filter(m=>m.assetId===a.id).length, c:C.muted },
+            { l:"Incidents Total", v:incidents.filter(i=>i.assetId===a.id).length, c:C.muted },
+          ].map(item=>(
+            <div key={item.l} style={{ background:"white", borderRadius:8, padding:"10px 12px", border:`1px solid ${C.border}` }}>
+              <div style={{ fontSize:9, color:C.muted, textTransform:"uppercase", letterSpacing:0.5, marginBottom:3 }}>{item.l}</div>
+              <div style={{ fontSize:12, fontWeight:700, color:item.c }}>{item.v}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* QUICK ACTIONS */}
+        <div style={{ background:"white", borderRadius:10, border:`1px solid ${C.border}`, padding:"16px", marginBottom:14 }}>
+          <div style={{ fontSize:11, fontWeight:700, color:C.muted, textTransform:"uppercase", letterSpacing:0.8, marginBottom:12 }}>Quick Actions</div>
+          <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+            <QuickAction icon="☑" label="Pre-Op Check" color={C.success} onClick={()=>{
+              setPreopF({...dPreop, assetId:a.id, date:today(), time:new Date().toTimeString().slice(0,5)});
+              setModal("preop"); setScannedAsset(null);
+            }}/>
+            <QuickAction icon="⛽" label="Log Fuel" color={C.warn} onClick={()=>{
+              setFf({...dF, assetId:a.id, date:today()});
+              setModal("fuel"); setScannedAsset(null);
+            }}/>
+            <QuickAction icon="🔧" label="Log Maintenance" color="#7c3aed" onClick={()=>{
+              setMf({...dM, assetId:a.id, date:today()});
+              setModal("maint"); setScannedAsset(null);
+            }}/>
+            <QuickAction icon="⚠" label="Log Incident" color={C.red} onClick={()=>{
+              setIncF({...dInc, assetId:a.id, date:today()});
+              setModal("incident"); setScannedAsset(null);
+            }}/>
+            <QuickAction icon="⊜" label="Condition Check" color={C.info} onClick={()=>{
+              setCondF({...dCond, assetId:a.id, assessmentDate:today()});
+              setModal("condition"); setScannedAsset(null);
+            }}/>
+          </div>
+        </div>
+
+        {/* QR CODE */}
+        <div style={{ background:"white", borderRadius:10, border:`1px solid ${C.border}`, padding:"16px", display:"flex", alignItems:"center", gap:16 }}>
+          <AssetQRCode assetId={a.id} assetName={a.name} size={80}/>
+          <div>
+            <div style={{ fontSize:12, fontWeight:700, color:C.text, marginBottom:4 }}>Asset QR Code</div>
+            <div style={{ fontSize:11, color:C.muted, marginBottom:8 }}>Scan with any phone camera to open this asset instantly</div>
+            <div style={{ fontFamily:"monospace", fontSize:10, color:C.muted, background:C.surface, padding:"4px 8px", borderRadius:5 }}>{a.id.slice(-12).toUpperCase()}</div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div>
+      <PageTitle title="ASSET TAGS & SCANNER"
+        sub="QR code tags for every asset — scan to log pre-ops, fuel, maintenance and incidents instantly"
+      />
+
+      {/* SECTION TABS */}
+      <div style={{ display:"flex", gap:4, marginBottom:24, borderBottom:`1px solid ${C.border}` }}>
+        {[
+          { id:"scanner", label:"📷 Scan Asset",     desc:"Identify by QR or search" },
+          { id:"tags",    label:"🏷 Print Tags",      desc:"Generate & print QR labels" },
+        ].map(s=>(
+          <button key={s.id} onClick={()=>{ setActiveSection(s.id); setScannedAsset(null); }} style={{
+            padding:"10px 20px", border:"none", background:"none", cursor:"pointer",
+            borderBottom:`2px solid ${activeSection===s.id?C.red:"transparent"}`,
+            fontSize:13, fontWeight:activeSection===s.id?700:400,
+            color:activeSection===s.id?C.red:C.muted,
+            fontFamily:"'DM Sans',sans-serif", marginBottom:-1,
+          }}>
+            {s.label}
+            <div style={{ fontSize:10, color:C.mutedLt, fontWeight:400, marginTop:1 }}>{s.desc}</div>
+          </button>
+        ))}
+      </div>
+
+      {/* ── SCANNER TAB ──────────────────────────────────────────────── */}
+      {activeSection==="scanner" && (
+        <div>
+          {!scannedAsset ? (
+            <div style={{ maxWidth:560, margin:"0 auto" }}>
+              {/* SCAN INPUT */}
+              <div style={{ background:C.dark, borderRadius:12, padding:"28px 32px", marginBottom:20, textAlign:"center" }}>
+                <div style={{ fontSize:40, marginBottom:12 }}>📷</div>
+                <div style={{ fontSize:18, fontWeight:800, color:"white", fontFamily:"'Barlow Condensed',sans-serif", marginBottom:6 }}>Scan Asset QR Code</div>
+                <div style={{ fontSize:13, color:"#9CA3AF", marginBottom:20 }}>
+                  Point your phone camera at the QR tag on the machine.<br/>
+                  Or type the asset serial number / name below.
+                </div>
+                <div style={{ display:"flex", gap:8 }}>
+                  <input
+                    ref={inputRef}
+                    value={scanInput}
+                    onChange={e=>{ setScanInput(e.target.value); setScanError(null); }}
+                    onKeyDown={handleKeyDown}
+                    placeholder="Scan QR or type asset name / serial..."
+                    autoFocus
+                    style={{ flex:1, border:"1px solid #374151", borderRadius:8, padding:"11px 16px", fontSize:13, background:"#1C2030", color:"white", fontFamily:"'DM Sans',sans-serif", outline:"none" }}
+                  />
+                  <button onClick={()=>handleScan()} style={{ background:C.red, color:"white", border:"none", borderRadius:8, padding:"11px 20px", fontSize:13, fontWeight:700, cursor:"pointer", fontFamily:"'DM Sans',sans-serif", flexShrink:0 }}>Search</button>
+                </div>
+                {scanError && <div style={{ marginTop:10, fontSize:12, color:"#FCA5A5" }}>{scanError}</div>}
+                <div style={{ marginTop:14, fontSize:11, color:"#4B5563" }}>
+                  💡 Works with USB barcode scanners too — just scan and it auto-submits
+                </div>
+              </div>
+
+              {/* SEARCH RESULTS */}
+              <div style={{ marginBottom:12 }}>
+                <input
+                  value={searchQ}
+                  onChange={e=>setSearchQ(e.target.value)}
+                  placeholder="Search assets by name, category, serial or location..."
+                  style={{ width:"100%", border:`1px solid ${C.border}`, borderRadius:8, padding:"10px 14px", fontSize:13, background:"white", fontFamily:"'DM Sans',sans-serif", color:C.text, outline:"none", boxSizing:"border-box" }}
+                />
+              </div>
+
+              <div style={{ display:"flex", flexDirection:"column", gap:8, maxHeight:400, overflowY:"auto" }}>
+                {filteredAssets.map(a=>{
+                  const d = depreciate(a);
+                  const todayPreop = preops.find(p=>p.assetId===a.id&&p.date===today());
+                  const openJCs = jobCards.filter(j=>j.assetId===a.id&&!["Complete","Cancelled","Invoiced"].includes(j.status)).length;
+                  return (
+                    <div key={a.id} onClick={()=>{ setScannedAsset(a); setScanError(null); }}
+                      style={{ background:"white", borderRadius:9, border:`1px solid ${C.border}`, padding:"12px 16px", cursor:"pointer", display:"flex", alignItems:"center", gap:12, transition:"all 0.15s" }}
+                      onMouseEnter={e=>{ e.currentTarget.style.borderColor=C.red; e.currentTarget.style.background=C.redLight; }}
+                      onMouseLeave={e=>{ e.currentTarget.style.borderColor=C.border; e.currentTarget.style.background="white"; }}>
+                      <span style={{ fontSize:22, flexShrink:0 }}>{CAT_ICONS[a.category]||"⚙"}</span>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ fontWeight:700, fontSize:13, color:C.text }}>{a.name}</div>
+                        <div style={{ fontSize:11, color:C.muted }}>{a.category} · {a.location}{a.serialNumber?` · ${a.serialNumber}`:""}</div>
+                      </div>
+                      <div style={{ display:"flex", gap:4, flexWrap:"wrap", justifyContent:"flex-end" }}>
+                        <Pill text={a.status} color={a.status==="Active"?"green":a.status==="Under Maintenance"?"yellow":"gray"}/>
+                        {!todayPreop && a.status==="Active" && <Pill text="No Pre-Op" color="yellow"/>}
+                        {openJCs>0 && <Pill text={`${openJCs} JC`} color="yellow"/>}
+                      </div>
+                    </div>
+                  );
+                })}
+                {filteredAssets.length===0 && (
+                  <div style={{ textAlign:"center", padding:"32px", color:C.muted, fontSize:13 }}>No assets match "{searchQ}"</div>
+                )}
+              </div>
+            </div>
+          ) : (
+            <ScannedAssetCard a={scannedAsset}/>
+          )}
+        </div>
+      )}
+
+      {/* ── PRINT TAGS TAB ───────────────────────────────────────────── */}
+      {activeSection==="tags" && (
+        <div>
+          {/* CONTROLS */}
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:18, flexWrap:"wrap", gap:10 }}>
+            <div style={{ fontSize:13, color:C.muted }}>
+              {selectedForPrint.length>0
+                ? `${selectedForPrint.length} asset${selectedForPrint.length!==1?"s":""} selected for printing`
+                : `${assets.length} asset${assets.length!==1?"s":""} · Select individual assets or print all`}
+            </div>
+            <div style={{ display:"flex", gap:8 }}>
+              {selectedForPrint.length>0 && (
+                <Btn variant="ghost" size="sm" onClick={()=>setSelectedForPrint([])}>Clear Selection</Btn>
+              )}
+              <Btn variant="outline" size="sm" onClick={()=>setSelectedForPrint(assets.map(a=>a.id))}>Select All</Btn>
+              <Btn onClick={printSelected} size="sm">
+                ⬒ Print {selectedForPrint.length>0?`${selectedForPrint.length} Tag${selectedForPrint.length!==1?"s":""}`:` All ${assets.length} Tags`}
+              </Btn>
+            </div>
+          </div>
+
+          {/* HOW IT WORKS */}
+          <div style={{ background:C.infoBg, border:"1px solid #BFDBFE", borderRadius:10, padding:"14px 18px", marginBottom:20, fontSize:12, color:C.info }}>
+            <strong>How it works:</strong> Each tag contains a QR code unique to that asset. When an operator scans it with their phone camera, it opens this system directly to that asset — ready to log a pre-op check, fuel fill, maintenance record or incident. Print on sticker paper and attach to the machine.
+          </div>
+
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))", gap:16 }}>
+            {assets.map(a=>{
+              const isPrint = selectedForPrint.includes(a.id);
+              const d = depreciate(a);
+              return (
+                <div key={a.id} style={{ position:"relative" }}>
+                  {/* SELECT CHECKBOX */}
+                  <div style={{ position:"absolute", top:-8, right:-8, zIndex:10 }}>
+                    <button onClick={()=>togglePrint(a.id)} style={{
+                      width:24, height:24, borderRadius:"50%",
+                      background:isPrint?C.red:C.white,
+                      border:`2px solid ${isPrint?C.red:C.border}`,
+                      cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center",
+                      fontSize:12, color:isPrint?"white":C.muted,
+                    }}>{isPrint?"✓":"+"}</button>
+                  </div>
+                  <div onClick={()=>togglePrint(a.id)} style={{ cursor:"pointer", outline:isPrint?`2px solid ${C.red}`:"none", borderRadius:12, transition:"all 0.15s" }}>
+                    <PrintableTag asset={a} company={company} depreciate={depreciate} C={C}/>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {assets.length===0 && (
+            <div style={{ textAlign:"center", padding:"64px", color:C.muted }}>
+              <div style={{ fontSize:32, marginBottom:12, opacity:0.3 }}>🏷</div>
+              <div style={{ fontSize:14, fontWeight:700, color:C.text, marginBottom:6 }}>No assets registered</div>
+              <div style={{ fontSize:13 }}>Register assets first to generate QR tags.</div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* PRINT STYLES */}
+      <style>{`
+        @media print {
+          .print-tag { break-inside: avoid; margin: 8px; }
+          body > * { display: none !important; }
+          .print-tags-container { display: block !important; }
+        }
+      `}</style>
+    </div>
+  );
+}
 
 // ── PHOTO CAPTURE ─────────────────────────────────────────────────────────
 function PhotoCapture({ photos = [], onChange, maxPhotos = 3 }) {
@@ -14094,6 +14560,25 @@ export default function App() {
               logAudit={logAudit} toast={toast} can={can} fmt={fmt} today={today}
               C={C} inp={inp} Field={Field} Row2={Row2} Btn={Btn} Card={Card}
               Tbl={Tbl} TR={TR} Empty={Empty} KPI={KPI} Pill={Pill} PageTitle={PageTitle}
+            />
+          )}
+
+          {/* ASSET TAGS & SCANNER */}
+          {tab === "AssetTags" && (
+            <AssetTagsTab
+              assets={assets} maint={maint} fuel={fuel} incidents={incidents}
+              preops={preops} jobCards={jobCards} spares={spares}
+              conditions={conditions} assignments={assignments}
+              projects={projects} employees={employees} suppliers={suppliers}
+              company={company} currentUser={currentUser}
+              add={add} update={update} persist={persist}
+              toast={toast} can={can} fmt={fmt} today={today}
+              depreciate={depreciate} getAssetExpenses={getAssetExpenses}
+              C={C} Btn={Btn} Pill={Pill} KPI={KPI} PageTitle={PageTitle}
+              setTab={setTab} setModal={setModal}
+              setMf={setMf} setFf={setFf} setIncF={setIncF}
+              setPreopF={setPreopF} setCondF={setCondF}
+              dM={dM} dF={dF} dInc={dInc} dPreop={dPreop} dCond={dCond}
             />
           )}
 
