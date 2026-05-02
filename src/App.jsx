@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import * as XLSX from "xlsx";
 import { db, auth, collection, doc, getDocs, setDoc, deleteDoc, onSnapshot, signInAnonymously, onAuthStateChanged, signOut } from "./firebase";
 
@@ -2301,9 +2301,9 @@ Portfolio: Cost R${totalCost.toLocaleString()} | Book Value R${Math.round(totalB
 // We encode a deep-link URL that opens the scanner page with the asset pre-selected
 
 function AssetQRCode({ assetId, assetName, size = 120 }) {
-  const [qrDataUrl, setQrDataUrl] = React.useState(null);
+  const [qrDataUrl, setQrDataUrl] = useState(null);
 
-  React.useEffect(() => {
+  useEffect(() => {
     // Build the scan URL — when scanned on phone, opens app to the scanner tab with asset pre-loaded
     const scanUrl = `${window.location.origin}${window.location.pathname}?scan=${assetId}`;
 
@@ -2388,16 +2388,16 @@ function AssetTagsTab({ assets, maint, fuel, incidents, preops, jobCards, spares
   setModal, setMf, setFf, setIncF, setPreopF, setCondF,
   dM, dF, dInc, dPreop, dCond }) {
 
-  const [activeSection, setActiveSection] = React.useState("scanner");
-  const [scanInput, setScanInput] = React.useState("");
-  const [scannedAsset, setScannedAsset] = React.useState(null);
-  const [searchQ, setSearchQ] = React.useState("");
-  const [selectedForPrint, setSelectedForPrint] = React.useState([]);
-  const [scanError, setScanError] = React.useState(null);
-  const inputRef = React.useRef(null);
+  const [activeSection, setActiveSection] = useState("scanner");
+  const [scanInput, setScanInput] = useState("");
+  const [scannedAsset, setScannedAsset] = useState(null);
+  const [searchQ, setSearchQ] = useState("");
+  const [selectedForPrint, setSelectedForPrint] = useState([]);
+  const [scanError, setScanError] = useState(null);
+  const inputRef = useRef(null);
 
   // On mount — check if URL has ?scan= parameter (from QR scan)
-  React.useEffect(() => {
+  useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const scannedId = params.get("scan");
     if (scannedId) {
@@ -2812,7 +2812,7 @@ function PhotoCapture({ photos = [], onChange, maxPhotos = 3 }) {
 
 // ── PHOTO GALLERY ─────────────────────────────────────────────────────────
 function PhotoGallery({ photos = [], label = "Photos" }) {
-  const [viewing, setViewing] = React.useState(null);
+  const [viewing, setViewing] = useState(null);
   if (!photos || photos.length === 0) return null;
   return (
     <div style={{ marginBottom:14 }}>
@@ -3156,13 +3156,13 @@ function HireReqsTab({ hireReqs, setHireReqs, assets, projects, employees, suppl
                     const isDone=stepIdx<=currentIdx;
                     const isCurrent=viewReq.status===s;
                     return (
-                      <React.Fragment key={s}>
+                      <span key={s} style={{display:"contents"}}>
                         <div style={{display:"flex",flexDirection:"column",alignItems:"center",flexShrink:0}}>
                           <div style={{width:26,height:26,borderRadius:"50%",background:isCurrent?C.red:isDone?C.success:"#E5E7EB",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700,color:"white"}}>{isDone?isCurrent?"●":"✓":"·"}</div>
                           <div style={{fontSize:8,color:isCurrent?C.red:isDone?C.success:C.muted,fontWeight:isCurrent?700:400,marginTop:2,whiteSpace:"nowrap"}}>{s}</div>
                         </div>
                         {i<statusOrder.length-1&&<div style={{height:2,width:20,background:stepIdx<currentIdx?C.success:"#E5E7EB",flexShrink:0,marginBottom:14}}/>}
-                      </React.Fragment>
+                      </span>
                     );
                   })}
                   {viewReq.status==="Rejected"&&<><div style={{height:2,width:20,background:"#E5E7EB",flexShrink:0,marginBottom:14}}/><div style={{display:"flex",flexDirection:"column",alignItems:"center",flexShrink:0}}><div style={{width:26,height:26,borderRadius:"50%",background:C.red,display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:700,color:"white"}}>✕</div><div style={{fontSize:8,color:C.red,fontWeight:700,marginTop:2}}>Rejected</div></div></>}
@@ -3603,11 +3603,11 @@ function AssetIntelTab({ assets, maint, fuel, incidents, conditions, preops, spa
   jobCards, assignments, employees, ts, company, today, fmt, depreciate,
   getAssetExpenses, C, Btn, Pill, KPI, PageTitle }) {
 
-  const [activeSection, setActiveSection] = React.useState("predict");
-  const [aiLoading, setAiLoading] = React.useState(false);
-  const [predictions, setPredictions] = React.useState(null);
-  const [aiError, setAiError] = React.useState(null);
-  const [expandedAsset, setExpandedAsset] = React.useState(null);
+  const [activeSection, setActiveSection] = useState("predict");
+  const [aiLoading, setAiLoading] = useState(false);
+  const [predictions, setPredictions] = useState(null);
+  const [aiError, setAiError] = useState(null);
+  const [expandedAsset, setExpandedAsset] = useState(null);
 
   const last6Months = () => Array.from({length:6},(_,i)=>{
     const d=new Date(); d.setMonth(d.getMonth()-(5-i)); return d.toISOString().slice(0,7);
