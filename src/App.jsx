@@ -2,14 +2,14 @@ import { useState, useEffect, useRef } from "react";
 import * as XLSX from "xlsx";
 import { db, auth, collection, doc, getDocs, setDoc, deleteDoc, onSnapshot, signInAnonymously, onAuthStateChanged, signOut } from "./firebase";
 import {
-  LayoutDashboard, Database, TrendingDown, Wrench, Fuel, Clock,
+  LayoutDashboard, Database, TrendingDown, TrendingUp, Wrench, Fuel, Clock,
   FileText, ShieldCheck, FolderKanban, Users, CalendarDays,
   Activity, AlertTriangle, Building2, Wallet, Truck, ClipboardList,
   Trash2, BarChart3, Scale, ScrollText, CalendarOff, UserCheck,
   Package, BadgeCheck, FileSpreadsheet, Upload, PieChart, Gauge,
   Bell, Receipt, ClipboardCheck, HardHat, ArrowLeftRight,
   ShoppingCart, Sparkles, Map, Brain, QrCode, Settings as SettingsIcon,
-  Hammer, Droplets, BarChart2, ScanLine, RefreshCw
+  Hammer, Droplets, BarChart2, ScanLine, RefreshCw, DollarSign, Landmark
 } from "lucide-react";
 
 const C = {
@@ -187,6 +187,7 @@ const MODULE_NAMES = {
   mcw_contractors: "Contractor Register",
   mcw_transfers: "Asset Transfer Log",
   mcw_jobcards: "Job Cards",
+  mcw_assetrevenue: "Asset Revenue",
   mcw_pos: "Purchase Orders",
   mcw_hirereqs: "Hire Requisitions",
 };
@@ -256,6 +257,7 @@ const NAV = [
   { id: "Utilisation",   ico: Gauge,            tip: "Asset utilisation — active vs idle time and site deployment rates" },
   { id: "Alerts",        ico: Bell,             tip: "Notification centre — all system alerts, warnings and reminders" },
   { id: "AssetExpenses", ico: Receipt,          tip: "Expense breakdown per asset — all costs in one view" },
+  { id: "AssetPL",       ico: TrendingUp,       tip: "Plant P&L — revenue vs total cost per asset, ROI and profitability ranking" },
   { id: "PreOp",         ico: ClipboardCheck,   tip: "Pre-operational checklists — daily vehicle and plant safety checks" },
   { id: "Contractors",   ico: HardHat,          tip: "Contractor register — external companies, compliance and contacts" },
   { id: "Transfers",     ico: ArrowLeftRight,   tip: "Asset transfer log — track movement of assets between sites" },
@@ -299,6 +301,7 @@ const NAV_LABELS = {
   Utilisation: "Asset Utilisation",
   Alerts: "Notification Centre",
   AssetExpenses: "Asset Expenses",
+  AssetPL: "Plant P&L",
   PreOp: "Pre-Op Checklists",
   Contractors: "Contractor Register",
   Transfers: "Asset Transfer Log",
@@ -1221,7 +1224,7 @@ const NAV_SECTIONS = [
   { label: "Operations", ids: ["Maintenance","JobCards","Schedules","Fuel","FuelRecon","Incidents","Hire","HireReqs","PreOp"] },
   { label: "People", ids: ["Employees", "Timesheets", "Leave", "Projects"] },
   { label: "Finance", ids: ["Budgets", "Compliance", "Reports", "SARSReport", "ProjectCost", "PurchaseOrders"] },
-  { label: "Intelligence", ids: ["Analytics", "AIAssist", "FleetMap", "AssetIntel", "FuelRecon", "Utilisation", "Alerts", "AssetExpenses"] },
+  { label: "Intelligence", ids: ["Analytics", "AIAssist", "FleetMap", "AssetIntel", "AssetPL", "FuelRecon", "Utilisation", "Alerts", "AssetExpenses"] },
   { label: "System", ids: ["Suppliers","Contractors","AuditLog","Import","Settings"] },
 ];
 
@@ -3625,6 +3628,310 @@ function FleetMapTab({ assets, maint, fuel, incidents, conditions, transfers, pr
 }
 
 
+// ── PLANT P&L ────────────────────────────────────────────────────────────────
+const REV_TYPES = ["Hire Out", "Internal Project Billing", "Revenue Share", "Standby Fee", "Salvage / Scrap", "Insurance Claim", "Other"];
+
+function AssetPLTab({ assets, maint, fuel, incidents, jobCards, projects,
+  assetRevenue, setAssetRevenue, currentUser,
+  add, update, del, persist, toast, can, fmt, today, depreciate,
+  C, inp, Field, Row2, Btn, Card, Tbl, TR, Empty, KPI, Pill, PageTitle }) {
+
+  const dRev = { assetId:"", date:today(), endDate:"", type:"Hire Out", description:"", client:"", dailyRate:"", totalDays:"", totalRevenue:"", notes:"" };
+  const [revForm, setRevForm] = useState(dRev);
+  const [revModal, setRevModal] = useState(false);
+  const [filterAsset, setFilterAsset] = useState("all");
+  const [view, setView] = useState("pl"); // "pl" | "log"
+
+  // Cost builder
+  const getCosts = (assetId) => {
+    const m = maint.filter(x => x.assetId === assetId).reduce((s,x) => s+Number(x.cost||0), 0);
+    const f = fuel.filter(x => x.assetId === assetId).reduce((s,x) => s+Number(x.cost||0), 0);
+    const i = incidents.filter(x => x.assetId === assetId).reduce((s,x) => s+Number(x.repairCost||0), 0);
+    const j = jobCards.filter(x => x.assetId === assetId).reduce((s,x) => s+Number(x.actualCost||0), 0);
+    const asset = assets.find(a => a.id === assetId);
+    const depr = asset ? Math.round(depreciate(asset).accumulated) : 0;
+    return { maint:m, fuel:f, incident:i, jobCards:j, depreciation:depr, total: m+f+i+j };
+  };
+  const getRevenue = (assetId) => assetRevenue.filter(r => r.assetId === assetId).reduce((s,r) => s+Number(r.totalRevenue||0), 0);
+
+  const plData = [...assets].map(a => {
+    const costs = getCosts(a.id);
+    const revenue = getRevenue(a.id);
+    const pl = revenue - costs.total;
+    const roi = costs.total > 0 ? ((revenue / costs.total) * 100) : null;
+    const costPerDay = (() => {
+      const days = fuel.filter(x=>x.assetId===a.id).length > 0
+        ? Math.max(1, Math.round((new Date()-new Date(a.purchaseDate||a.acquisitionDate||today()))/(1000*60*60*24)))
+        : null;
+      return days ? (costs.total / days) : null;
+    })();
+    return { asset:a, costs, revenue, pl, roi, costPerDay };
+  }).sort((a,b) => b.pl - a.pl);
+
+  const totalRevenue = plData.reduce((s,x) => s+x.revenue, 0);
+  const totalCosts   = plData.reduce((s,x) => s+x.costs.total, 0);
+  const totalPL      = totalRevenue - totalCosts;
+  const profitable   = plData.filter(x => x.pl > 0).length;
+  const moneyPits    = plData.filter(x => x.revenue === 0 && x.costs.total > 0).length;
+
+  const maxBar = Math.max(...plData.map(x => Math.max(x.revenue, x.costs.total)), 1);
+
+  const logItems = filterAsset === "all" ? assetRevenue : assetRevenue.filter(r => r.assetId === filterAsset);
+
+  return (
+    <div>
+      <PageTitle
+        title="PLANT P&L"
+        sub="Revenue vs total operating cost per asset — profitability ranking and ROI"
+        action={
+          <div style={{ display:"flex", gap:8 }}>
+            <div style={{ display:"flex", background:C.surface, borderRadius:8, border:`1px solid ${C.border}`, overflow:"hidden" }}>
+              {[["pl","P&L View"],["log","Revenue Log"]].map(([v,l]) => (
+                <button key={v} onClick={()=>setView(v)} style={{ padding:"7px 14px", fontSize:11, fontWeight:600, fontFamily:"'DM Sans',sans-serif", background:view===v?C.red:"transparent", color:view===v?"white":C.muted, border:"none", cursor:"pointer" }}>{l}</button>
+              ))}
+            </div>
+            {can(currentUser,"canAdd") && (
+              <Btn onClick={()=>{ setRevForm(dRev); setRevModal(true); }}>＋ Log Revenue</Btn>
+            )}
+          </div>
+        }
+      />
+
+      {/* KPIs */}
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(155px,1fr))", gap:14, marginBottom:22 }}>
+        <KPI label="Total Revenue" value={fmt(totalRevenue)} color={C.success} icon={TrendingUp} sub="all assets logged"/>
+        <KPI label="Total Operating Cost" value={fmt(totalCosts)} color={C.red} icon={TrendingDown} sub="maint + fuel + incidents"/>
+        <KPI label="Net P&L" value={fmt(totalPL)} color={totalPL>=0?C.success:C.red} icon={Landmark} sub={totalPL>=0?"in surplus":"in deficit"}/>
+        <KPI label="Profitable Assets" value={profitable} color={profitable>0?C.success:C.muted} icon={BadgeCheck} sub={`of ${assets.length} total`}/>
+        <KPI label="No Revenue Logged" value={moneyPits} color={moneyPits>0?C.warn:C.success} icon={AlertTriangle} sub="cost only assets"/>
+        <KPI label="Revenue Entries" value={assetRevenue.length} color={C.info} icon={Receipt} sub="all records"/>
+      </div>
+
+      {view === "pl" && (
+        <>
+          {/* PORTFOLIO BANNER */}
+          {totalPL !== 0 && (
+            <div style={{ background:totalPL>=0?C.successBg:C.redLight, border:`1px solid ${totalPL>=0?"#A7F3D0":C.redBorder}`, borderRadius:10, padding:"14px 20px", marginBottom:18, display:"flex", alignItems:"center", gap:16 }}>
+              <div style={{ fontSize:28, fontWeight:900, color:totalPL>=0?C.success:C.red, fontFamily:"'Barlow Condensed',sans-serif" }}>
+                {totalPL>=0?"▲":"▼"} {fmt(Math.abs(totalPL))}
+              </div>
+              <div>
+                <div style={{ fontSize:13, fontWeight:700, color:C.text }}>Portfolio {totalPL>=0?"Surplus":"Deficit"}</div>
+                <div style={{ fontSize:11, color:C.muted }}>
+                  Revenue covers {totalCosts>0?Math.round((totalRevenue/totalCosts)*100):0}% of total operating costs ·
+                  {profitable} of {assets.length} assets generating revenue
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* P&L TABLE */}
+          {plData.length === 0 ? (
+            <Empty icon={<TrendingUp size={32}/>} title="No assets registered" desc="Register assets first, then log revenue against each one to see P&L."/>
+          ) : (
+            <Card>
+              <Tbl cols={["Asset","Category","Total Revenue","Operating Cost","Net P&L","ROI","Cost Breakdown","Visual"]}>
+                {plData.map((row, i) => {
+                  const { asset:a, costs, revenue, pl, roi } = row;
+                  const plColor = pl > 0 ? C.success : pl < 0 ? C.red : C.muted;
+                  const revPct  = revenue > 0 ? Math.round((revenue / maxBar) * 100) : 0;
+                  const costPct = costs.total > 0 ? Math.round((costs.total / maxBar) * 100) : 0;
+                  return (
+                    <TR key={a.id} stripe={i%2!==0} cells={[
+                      <div>
+                        <div style={{ fontWeight:700, fontSize:12, color:C.text }}>{a.name}</div>
+                        <div style={{ fontSize:10, color:C.mutedLt }}>{a.location}</div>
+                      </div>,
+                      <span style={{ fontSize:12, color:C.muted }}>{a.category}</span>,
+                      <div>
+                        <div style={{ fontWeight:700, color:C.success, fontSize:13 }}>{fmt(revenue)}</div>
+                        <div style={{ fontSize:10, color:C.mutedLt }}>{assetRevenue.filter(r=>r.assetId===a.id).length} entr{assetRevenue.filter(r=>r.assetId===a.id).length===1?"y":"ies"}</div>
+                      </div>,
+                      <div>
+                        <div style={{ fontWeight:700, color:C.red, fontSize:13 }}>{fmt(costs.total)}</div>
+                        <div style={{ fontSize:10, color:C.mutedLt }}>excl. depreciation</div>
+                      </div>,
+                      <div style={{ fontWeight:800, fontSize:14, color:plColor, fontFamily:"'Barlow Condensed',sans-serif" }}>
+                        {pl > 0 ? "+" : ""}{fmt(pl)}
+                      </div>,
+                      <div>
+                        {roi !== null ? (
+                          <Pill text={`${roi.toFixed(0)}%`} color={roi>=100?"green":roi>=50?"blue":roi>=0?"yellow":"red"}/>
+                        ) : <span style={{ color:C.mutedLt, fontSize:11 }}>—</span>}
+                      </div>,
+                      <div style={{ fontSize:10, color:C.muted, lineHeight:1.6 }}>
+                        {costs.maint>0 && <div>Maint: <b>{fmt(costs.maint)}</b></div>}
+                        {costs.fuel>0  && <div>Fuel: <b>{fmt(costs.fuel)}</b></div>}
+                        {costs.incident>0 && <div>Incidents: <b>{fmt(costs.incident)}</b></div>}
+                        {costs.jobCards>0 && <div>Job Cards: <b>{fmt(costs.jobCards)}</b></div>}
+                        {costs.total===0 && <span style={{ color:C.mutedLt }}>No costs yet</span>}
+                      </div>,
+                      <div style={{ width:"100%", minWidth:120 }}>
+                        {/* Revenue bar */}
+                        <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:4 }}>
+                          <div style={{ fontSize:9, color:C.success, width:10, fontWeight:700 }}>R</div>
+                          <div style={{ flex:1, height:7, background:C.surface, borderRadius:4, overflow:"hidden" }}>
+                            <div style={{ width:`${revPct}%`, height:"100%", background:C.success, borderRadius:4, transition:"width 0.6s ease" }}/>
+                          </div>
+                        </div>
+                        {/* Cost bar */}
+                        <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                          <div style={{ fontSize:9, color:C.red, width:10, fontWeight:700 }}>C</div>
+                          <div style={{ flex:1, height:7, background:C.surface, borderRadius:4, overflow:"hidden" }}>
+                            <div style={{ width:`${costPct}%`, height:"100%", background:costPct>revPct?C.red:"#FB923C", borderRadius:4, transition:"width 0.6s ease" }}/>
+                          </div>
+                        </div>
+                      </div>
+                    ]}/>
+                  );
+                })}
+              </Tbl>
+            </Card>
+          )}
+        </>
+      )}
+
+      {view === "log" && (
+        <>
+          <div style={{ display:"flex", gap:10, marginBottom:16, alignItems:"center" }}>
+            <select {...inp} style={{ ...inp.style, maxWidth:240 }} value={filterAsset} onChange={e=>setFilterAsset(e.target.value)}>
+              <option value="all">All Assets</option>
+              {assets.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+            </select>
+            <span style={{ fontSize:12, color:C.muted }}>{logItems.length} entr{logItems.length===1?"y":"ies"} · {fmt(logItems.reduce((s,r)=>s+Number(r.totalRevenue||0),0))} total</span>
+          </div>
+          {logItems.length === 0 ? (
+            <Empty icon={<DollarSign size={32}/>} title="No revenue logged yet"
+              desc="Click '+ Log Revenue' to record hire-out income, project billing or any other revenue generated by your fleet assets."
+              btn={<Btn onClick={()=>{ setRevForm(dRev); setRevModal(true); }}>Log First Revenue Entry</Btn>}/>
+          ) : (
+            <Card>
+              <Tbl cols={["Asset","Type","Date","Client / Description","Daily Rate","Days","Total Revenue",""]}>
+                {[...logItems].sort((a,b)=>b.date>a.date?1:-1).map((r,i) => {
+                  const asset = assets.find(a=>a.id===r.assetId);
+                  return (
+                    <TR key={r.id} stripe={i%2!==0} cells={[
+                      <div>
+                        <div style={{ fontWeight:700, fontSize:12 }}>{asset?.name||"—"}</div>
+                        <div style={{ fontSize:10, color:C.mutedLt }}>{asset?.category}</div>
+                      </div>,
+                      <Pill text={r.type} color="blue"/>,
+                      <div>
+                        <div style={{ fontSize:12 }}>{r.date}</div>
+                        {r.endDate && r.endDate!==r.date && <div style={{ fontSize:10, color:C.mutedLt }}>to {r.endDate}</div>}
+                      </div>,
+                      <div>
+                        {r.client && <div style={{ fontSize:12, fontWeight:600 }}>{r.client}</div>}
+                        {r.description && <div style={{ fontSize:11, color:C.muted }}>{r.description}</div>}
+                      </div>,
+                      <span style={{ fontSize:12 }}>{r.dailyRate?fmt(r.dailyRate)+"/d":"—"}</span>,
+                      <span style={{ fontSize:12 }}>{r.totalDays||"—"}</span>,
+                      <div style={{ fontWeight:800, color:C.success, fontSize:14, fontFamily:"'Barlow Condensed',sans-serif" }}>{fmt(r.totalRevenue)}</div>,
+                      <div style={{ display:"flex", gap:4 }}>
+                        {can(currentUser,"canEdit") && (
+                          <button onClick={()=>{ setRevForm({...dRev,...r}); setRevModal(true); }} style={{ color:C.warn, background:"none", border:"none", cursor:"pointer", fontSize:11, fontWeight:600, fontFamily:"'DM Sans',sans-serif" }}>Edit</button>
+                        )}
+                        {can(currentUser,"canDelete") && (
+                          <button onClick={()=>del("mcw_assetrevenue",setAssetRevenue,assetRevenue,r.id)} style={{ color:C.muted, background:"none", border:"none", cursor:"pointer", fontSize:14, padding:"0 4px" }}>×</button>
+                        )}
+                      </div>
+                    ]}/>
+                  );
+                })}
+              </Tbl>
+            </Card>
+          )}
+        </>
+      )}
+
+      {/* REVENUE ENTRY MODAL */}
+      {revModal && (
+        <div style={{ position:"fixed", inset:0, background:"rgba(17,19,24,0.72)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:9999, padding:20, backdropFilter:"blur(3px)" }}>
+          <div style={{ background:C.white, borderRadius:14, width:"100%", maxWidth:560, maxHeight:"92vh", overflowY:"auto", boxShadow:"0 24px 80px rgba(0,0,0,0.3)", border:`1px solid ${C.border}` }}>
+            <div style={{ padding:"20px 28px", borderBottom:`1px solid ${C.border}`, background:C.surface, display:"flex", justifyContent:"space-between", alignItems:"center", position:"sticky", top:0, zIndex:10 }}>
+              <div>
+                <div style={{ fontSize:15, fontWeight:700, color:C.text }}>{revForm.id?"Edit Revenue Entry":"Log Revenue"}</div>
+                <div style={{ fontSize:12, color:C.muted, marginTop:2 }}>Record income generated by a fleet asset</div>
+              </div>
+              <button onClick={()=>setRevModal(false)} style={{ background:"none", border:"none", fontSize:18, cursor:"pointer", color:C.mutedLt }}>✕</button>
+            </div>
+            <div style={{ padding:"22px 28px" }}>
+              <Field label="Asset" required>
+                <select {...inp} value={revForm.assetId} onChange={e=>setRevForm({...revForm,assetId:e.target.value})}>
+                  <option value="">— Select Asset —</option>
+                  {assets.map(a=><option key={a.id} value={a.id}>{a.name} · {a.category}</option>)}
+                </select>
+              </Field>
+              <Row2>
+                <Field label="Revenue Type" required>
+                  <select {...inp} value={revForm.type} onChange={e=>setRevForm({...revForm,type:e.target.value})}>
+                    {REV_TYPES.map(t=><option key={t}>{t}</option>)}
+                  </select>
+                </Field>
+                <Field label="Client / Customer">
+                  <input {...inp} value={revForm.client} onChange={e=>setRevForm({...revForm,client:e.target.value})} placeholder="Company or individual name"/>
+                </Field>
+              </Row2>
+              <Row2>
+                <Field label="Start Date" required>
+                  <input type="date" {...inp} value={revForm.date} onChange={e=>setRevForm({...revForm,date:e.target.value})}/>
+                </Field>
+                <Field label="End Date">
+                  <input type="date" {...inp} value={revForm.endDate} onChange={e=>setRevForm({...revForm,endDate:e.target.value})}/>
+                </Field>
+              </Row2>
+              <Field label="Description">
+                <input {...inp} value={revForm.description} onChange={e=>setRevForm({...revForm,description:e.target.value})} placeholder="Brief description of what the asset was used for"/>
+              </Field>
+              <Row2>
+                <Field label="Daily Rate (R)">
+                  <input type="number" {...inp} value={revForm.dailyRate} onChange={e=>{
+                    const dr=e.target.value;
+                    const rev=revForm.totalDays?String(Number(dr)*Number(revForm.totalDays)):revForm.totalRevenue;
+                    setRevForm({...revForm,dailyRate:dr,totalRevenue:rev});
+                  }} placeholder="0.00"/>
+                </Field>
+                <Field label="Number of Days">
+                  <input type="number" {...inp} value={revForm.totalDays} onChange={e=>{
+                    const days=e.target.value;
+                    const rev=revForm.dailyRate?String(Number(revForm.dailyRate)*Number(days)):revForm.totalRevenue;
+                    setRevForm({...revForm,totalDays:days,totalRevenue:rev});
+                  }} placeholder="1"/>
+                </Field>
+              </Row2>
+              <Field label="Total Revenue (R)" required>
+                <input type="number" {...inp} value={revForm.totalRevenue}
+                  onChange={e=>setRevForm({...revForm,totalRevenue:e.target.value})}
+                  placeholder="Auto-calculated from daily rate × days, or enter manually"
+                  style={{ ...inp.style, fontWeight:700, fontSize:15, color:C.success }}/>
+              </Field>
+              <Field label="Notes">
+                <input {...inp} value={revForm.notes} onChange={e=>setRevForm({...revForm,notes:e.target.value})} placeholder="Any additional notes"/>
+              </Field>
+              <div style={{ display:"flex", gap:10, marginTop:20, paddingTop:16, borderTop:`1px solid ${C.border}` }}>
+                <Btn style={{ flex:1, justifyContent:"center" }} onClick={()=>{
+                  if(!revForm.assetId||!revForm.totalRevenue){toast("Select an asset and enter a revenue amount.","error");return;}
+                  if(revForm.id){
+                    update("mcw_assetrevenue",setAssetRevenue,assetRevenue,revForm.id,revForm);
+                    toast("Revenue entry updated.");
+                  } else {
+                    add("mcw_assetrevenue",setAssetRevenue,assetRevenue,revForm);
+                    toast(`Revenue of ${fmt(revForm.totalRevenue)} logged for ${assets.find(a=>a.id===revForm.assetId)?.name||"asset"}.`);
+                  }
+                  setRevModal(false);
+                }}>
+                  {revForm.id?"Save Changes":"Log Revenue"}
+                </Btn>
+                <Btn variant="ghost" onClick={()=>setRevModal(false)}>Cancel</Btn>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AssetIntelTab({ assets, maint, fuel, incidents, conditions, preops, spares,
   jobCards, assignments, employees, ts, company, today, fmt, depreciate,
   getAssetExpenses, C, Btn, Pill, KPI, PageTitle }) {
@@ -4242,10 +4549,11 @@ export default function App() {
       ["fuel",        setFuel],
       ["incidents",   setIncidents],
       ["compliance",  setCompliance],
-      ["preops",      setPreops],
-      ["jobcards",    setJobCards],
-      ["pos",         setPurchaseOrders],
-      ["hirereqs",    setHireReqs],
+      ["preops",        setPreops],
+      ["jobcards",      setJobCards],
+      ["pos",           setPurchaseOrders],
+      ["hirereqs",      setHireReqs],
+      ["assetrevenue",  setAssetRevenue],
     ];
     const unsubscribers = realTimeCollections.map(([name, setter]) => {
       return onSnapshot(collection(db, name), (snapshot) => {
@@ -4308,9 +4616,10 @@ export default function App() {
       ["preops",      setPreops],
       ["contractors", setContractors],
       ["transfers",   setTransfers],
-      ["jobcards",    setJobCards],
-      ["pos",         setPurchaseOrders],
-      ["hirereqs",    setHireReqs],
+      ["jobcards",      setJobCards],
+      ["pos",           setPurchaseOrders],
+      ["hirereqs",      setHireReqs],
+      ["assetrevenue",  setAssetRevenue],
     ];
 
     for (const [name, setter] of collections) {
@@ -4575,6 +4884,7 @@ export default function App() {
   };
   const [transF, setTransF] = useState(dTrans);
   const [jobCards, setJobCards] = useState([]);
+  const [assetRevenue, setAssetRevenue] = useState([]);
   const [purchaseOrders, setPurchaseOrders] = useState([]);
   const [hireReqs, setHireReqs] = useState([]);
   const dCon = {
@@ -14754,6 +15064,21 @@ input:focus,select:focus,textarea:focus{border-color:${C.red}!important;box-shad
               ts={ts} company={company} today={today} fmt={fmt}
               depreciate={depreciate} getAssetExpenses={getAssetExpenses}
               C={C} Btn={Btn} Pill={Pill} KPI={KPI} PageTitle={PageTitle}
+            />
+          )}
+
+          {/* PLANT P&L */}
+          {tab === "AssetPL" && (
+            <AssetPLTab
+              assets={assets} maint={maint} fuel={fuel} incidents={incidents}
+              jobCards={jobCards} projects={projects}
+              assetRevenue={assetRevenue} setAssetRevenue={setAssetRevenue}
+              currentUser={currentUser} depreciate={depreciate}
+              add={add} update={update} del={del} persist={persist}
+              toast={toast} can={can} fmt={fmt} today={today}
+              C={C} inp={inp} Field={Field} Row2={Row2}
+              Btn={Btn} Card={Card} Tbl={Tbl} TR={TR} Empty={Empty}
+              KPI={KPI} Pill={Pill} PageTitle={PageTitle}
             />
           )}
 
