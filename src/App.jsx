@@ -11,7 +11,8 @@ import {
   ShoppingCart, Sparkles, Map, Brain, QrCode, Settings as SettingsIcon,
   Hammer, Droplets, BarChart2, ScanLine, RefreshCw, DollarSign, Landmark,
   ShieldAlert, Stethoscope, BadgePlus, CalendarCheck2, HeartPulse, IdCard, AlertCircle,
-  ShieldPlus, Siren, Ambulance, BriefcaseMedical, Banknote, FilePlus2, FileWarning, Bandage
+  ShieldPlus, Siren, Ambulance, BriefcaseMedical, Banknote, FilePlus2, FileWarning, Bandage,
+  AlertOctagon, GraduationCap, BookOpen, Users2, NotebookPen, ListChecks, ShieldX, BookCheck
 } from "lucide-react";
 
 const C = {
@@ -195,6 +196,8 @@ const MODULE_NAMES = {
   mcw_opfitness: "Operator Fitness",
   mcw_insurance: "Insurance Register",
   mcw_coid: "COID / IOD Register",
+  mcw_riskassess: "Risk Assessment Register",
+  mcw_training: "Training & Toolbox Talks",
 };
 const COMPLIANCE_TYPES = [
   "Roadworthy Certificate",
@@ -245,6 +248,7 @@ const NAV = [
   { id: "Conditions",    ico: Activity,         tip: "Asset condition assessments — ratings, photos and history" },
   { id: "Incidents",     ico: AlertTriangle,    tip: "Incident log — breakdowns, accidents, near-misses and resolutions" },
   { id: "COID",          ico: Siren,            tip: "COID / IOD Register — COIDA-compliant injury on duty register, W.Cl.2 reporting, days lost and claim tracking" },
+  { id: "RiskAssess",    ico: AlertOctagon,     tip: "Risk Assessment Register — OHSA Reg 5 documented hazards, risk ratings, control measures and review dates per activity" },
   { id: "Suppliers",     ico: Building2,        tip: "Supplier register — service providers, parts suppliers and contractors" },
   { id: "Budgets",       ico: Wallet,           tip: "Budget management — department allocations and spend tracking" },
   { id: "Insurance",     ico: ShieldPlus,       tip: "Insurance register — per-asset policies, plant all-risk, renewal alerts and claims log" },
@@ -256,6 +260,7 @@ const NAV = [
   { id: "AuditLog",      ico: ScrollText,       tip: "Audit trail — full history of every change made in the system" },
   { id: "Leave",         ico: CalendarOff,      tip: "Leave and overtime — employee absence and extra hours tracking" },
   { id: "OpFitness",     ico: Stethoscope,      tip: "Operator fitness — licence expiry, medicals, PDP and permit tracking with automated alerts" },
+  { id: "Training",      ico: GraduationCap,    tip: "Training & Toolbox Talks — OHSA Section 8 training records, toolbox talk attendance and induction register" },
   { id: "Assignments",   ico: UserCheck,        tip: "Asset assignments — who is responsible for which asset" },
   { id: "Spares",        ico: Package,          tip: "Parts and spares inventory — stock levels, reorder alerts" },
   { id: "Warranties",    ico: BadgeCheck,       tip: "Warranty register — active warranties with expiry notifications" },
@@ -322,6 +327,8 @@ const NAV_LABELS = {
   OpFitness: "Operator Fitness",
   Insurance: "Insurance Register",
   COID: "COID / IOD Register",
+  RiskAssess: "Risk Assessment Register",
+  Training: "Training & Toolbox Talks",
   Settings: "Settings",
 };
 const ROLES = {
@@ -1235,8 +1242,8 @@ const DEFAULT_SITES = [
 const NAV_SECTIONS = [
   { label: "Overview", ids: ["Dashboard"] },
   { label: "Assets", ids: ["Assets","Depreciation","Conditions","Warranties","Assignments","Disposals","Spares","Transfers","AssetTags"] },
-  { label: "Operations", ids: ["Maintenance","JobCards","Schedules","Fuel","FuelRecon","Incidents","COID","Hire","HireReqs","PreOp"] },
-  { label: "People", ids: ["Employees", "Timesheets", "Leave", "OpFitness", "Projects"] },
+  { label: "Operations", ids: ["Maintenance","JobCards","Schedules","Fuel","FuelRecon","Incidents","COID","RiskAssess","Hire","HireReqs","PreOp"] },
+  { label: "People", ids: ["Employees", "Timesheets", "Leave", "OpFitness", "Training", "Projects"] },
   { label: "Finance", ids: ["Budgets", "Insurance", "Compliance", "Reports", "SARSReport", "ProjectCost", "PurchaseOrders"] },
   { label: "Intelligence", ids: ["Analytics", "AIAssist", "FleetMap", "AssetIntel", "AssetPL", "FuelRecon", "Utilisation", "Alerts", "AssetExpenses"] },
   { label: "System", ids: ["Suppliers","Contractors","AuditLog","Import","Settings"] },
@@ -3642,6 +3649,599 @@ function FleetMapTab({ assets, maint, fuel, incidents, conditions, transfers, pr
 }
 
 
+// ── RISK ASSESSMENT REGISTER ─────────────────────────────────────────────────
+const RISK_ACTIVITIES = [
+  "Excavation / Trenching", "Lifting Operations (Crane/Hoist)", "Working at Heights",
+  "Demolition", "Concrete Works", "Welding / Cutting / Grinding", "Electrical Works",
+  "Confined Space Entry", "Blasting / Explosive Works", "Hazardous Chemical Handling",
+  "Plant / Equipment Operation", "Manual Handling", "Scaffolding / Formwork",
+  "Road Works / Traffic Management", "Housekeeping / General Site", "Other"
+];
+const RISK_HAZARDS = [
+  "Fall from height", "Falling objects", "Electrical shock / arc flash",
+  "Crush / entrapment", "Struck by plant or vehicle", "Explosion / fire",
+  "Chemical burn / inhalation", "Noise-induced hearing loss", "Ergonomic strain",
+  "Drowning", "Heat / sun exposure", "Slip, trip or fall (same level)",
+  "Dust / airborne particles", "Structural collapse", "Other"
+];
+const RISK_MATRIX = {
+  "High": { color: "#dc2626", bg: "#FEF2F2", label: "High Risk — Immediate controls required" },
+  "Medium": { color: "#d97706", bg: "#FFFBEB", label: "Medium Risk — Monitor and improve controls" },
+  "Low": { color: "#16a34a", bg: "#F0FDF4", label: "Low Risk — Maintain existing controls" },
+};
+const PERSONS_AT_RISK = [
+  "All Site Personnel", "Operators", "Labourers", "Supervisors",
+  "Visitors / Public", "Subcontractors", "Drivers", "Other"
+];
+
+function RiskAssessTab({ riskAssessments, setRiskAssessments, assets, employees, currentUser,
+  add, update, del, toast, can, fmt, today,
+  C, inp, Field, Row2, Btn, Card, Tbl, TR, Empty, KPI, Pill, PageTitle }) {
+
+  const blank = {
+    activity: "", hazard: "", personsAtRisk: "", existingControls: "",
+    likelihoodBefore: "3", severityBefore: "3", riskRatingBefore: "High",
+    additionalControls: "", likelihoodAfter: "2", severityAfter: "2", riskRatingAfter: "Medium",
+    linkedAssetId: "", assessedBy: "", assessedDate: "", reviewDate: "",
+    approvedBy: "", approvedDate: "", status: "Active", notes: ""
+  };
+  const [form, setForm] = useState(blank);
+  const [showModal, setShowModal] = useState(false);
+  const [filterRisk, setFilterRisk] = useState("all");
+  const [filterStatus, setFilterStatus] = useState("all");
+  const [view, setView] = useState("table");
+
+  const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
+
+  const calcRating = (l, s) => {
+    const score = Number(l) * Number(s);
+    if (score >= 9) return "High";
+    if (score >= 4) return "Medium";
+    return "Low";
+  };
+
+  const handleL = (k, v) => {
+    const isAfter = k === "likelihoodAfter";
+    const sKey = isAfter ? "severityAfter" : "severityBefore";
+    const rKey = isAfter ? "riskRatingAfter" : "riskRatingBefore";
+    const newRating = calcRating(v, form[sKey]);
+    setForm(p => ({ ...p, [k]: v, [rKey]: newRating }));
+  };
+  const handleS = (k, v) => {
+    const isAfter = k === "severityAfter";
+    const lKey = isAfter ? "likelihoodAfter" : "likelihoodBefore";
+    const rKey = isAfter ? "riskRatingAfter" : "riskRatingBefore";
+    const newRating = calcRating(form[lKey], v);
+    setForm(p => ({ ...p, [k]: v, [rKey]: newRating }));
+  };
+
+  const filtered = riskAssessments.filter(r => {
+    if (filterRisk !== "all" && r.riskRatingAfter !== filterRisk) return false;
+    if (filterStatus !== "all" && r.status !== filterStatus) return false;
+    return true;
+  });
+
+  const highCount = riskAssessments.filter(r => r.riskRatingAfter === "High").length;
+  const medCount  = riskAssessments.filter(r => r.riskRatingAfter === "Medium").length;
+  const lowCount  = riskAssessments.filter(r => r.riskRatingAfter === "Low").length;
+  const reviewDue = riskAssessments.filter(r => r.reviewDate && r.reviewDate <= today()).length;
+  const noApproval = riskAssessments.filter(r => !r.approvedBy || !r.approvedDate).length;
+
+  const riskColor = r => (RISK_MATRIX[r] || RISK_MATRIX["Low"]).color;
+
+  const save = () => {
+    if (!form.activity || !form.hazard) return toast("Activity and hazard are required", "error");
+    if (form.id) { update("mcw_riskassess", setRiskAssessments, riskAssessments, form.id, form); toast("Risk assessment updated"); }
+    else { add("mcw_riskassess", setRiskAssessments, riskAssessments, form); toast("Risk assessment added"); }
+    setShowModal(false); setForm(blank);
+  };
+
+  const ScoreSelect = ({ label: lbl, val, onChange }) => (
+    <Field label={lbl}>
+      <select value={val} onChange={e => onChange(e.target.value)} style={inp}>
+        <option value="1">1 — Rare / Minor</option>
+        <option value="2">2 — Unlikely / Moderate</option>
+        <option value="3">3 — Possible / Major</option>
+        <option value="4">4 — Likely / Critical</option>
+        <option value="5">5 — Almost Certain / Catastrophic</option>
+      </select>
+    </Field>
+  );
+
+  return (
+    <div>
+      <PageTitle
+        title="RISK ASSESSMENT REGISTER"
+        sub="OHSA Construction Regulations 2014 Reg 5 — documented hazard identification, risk ratings and control measures"
+        action={can(currentUser, "canAdd") && (
+          <Btn onClick={() => { setForm(blank); setShowModal(true); }}><AlertOctagon size={13} strokeWidth={1.75} style={{ marginRight: 5 }} />Add Risk Assessment</Btn>
+        )}
+      />
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 12, marginBottom: 22 }}>
+        <KPI label="Total Assessments" value={riskAssessments.length} icon={AlertOctagon} color={C.info} sub="on record" />
+        <KPI label="High Risk" value={highCount} icon={ShieldX} color="#dc2626" sub="immediate action" />
+        <KPI label="Medium Risk" value={medCount} icon={AlertCircle} color="#d97706" sub="monitor closely" />
+        <KPI label="Low Risk" value={lowCount} icon={ShieldCheck} color="#16a34a" sub="maintain controls" />
+        <KPI label="Review Overdue" value={reviewDue} icon={FileWarning} color={reviewDue > 0 ? C.red : C.muted} sub="past review date" />
+        <KPI label="Awaiting Approval" value={noApproval} icon={BadgeCheck} color={noApproval > 0 ? "#d97706" : C.muted} sub="not signed off" />
+      </div>
+
+      {highCount > 0 && (
+        <div style={{ background: "#FEF2F2", border: `1px solid ${C.redBorder}`, borderRadius: 10, padding: "12px 18px", marginBottom: 18, display: "flex", gap: 12, alignItems: "flex-start" }}>
+          <ShieldX size={18} color={C.red} style={{ marginTop: 1, flexShrink: 0 }} />
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 13, color: C.red }}>{highCount} High-Risk Activit{highCount !== 1 ? "ies" : "y"} — Additional Controls Required</div>
+            <div style={{ fontSize: 11.5, color: "#991b1b", marginTop: 3, lineHeight: 1.5 }}>
+              {riskAssessments.filter(r => r.riskRatingAfter === "High").slice(0, 5).map(r => r.activity).join(" · ")}
+              {highCount > 5 ? ` · +${highCount - 5} more` : ""}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div style={{ display: "flex", gap: 10, marginBottom: 18, flexWrap: "wrap", alignItems: "center" }}>
+        <select value={filterRisk} onChange={e => setFilterRisk(e.target.value)} style={{ ...inp, width: 180 }}>
+          <option value="all">All Risk Levels</option>
+          <option value="High">High Risk</option>
+          <option value="Medium">Medium Risk</option>
+          <option value="Low">Low Risk</option>
+        </select>
+        <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} style={{ ...inp, width: 160 }}>
+          <option value="all">All Statuses</option>
+          <option value="Active">Active</option>
+          <option value="Under Review">Under Review</option>
+          <option value="Superseded">Superseded</option>
+          <option value="Archived">Archived</option>
+        </select>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+          <Btn variant={view === "table" ? "primary" : "outline"} size="sm" onClick={() => setView("table")}>Table</Btn>
+          <Btn variant={view === "cards" ? "primary" : "outline"} size="sm" onClick={() => setView("cards")}>Cards</Btn>
+        </div>
+      </div>
+
+      {filtered.length === 0 && <Empty icon={AlertOctagon} title="No risk assessments on record" desc="Document risk assessments per activity to comply with OHSA Construction Regulations 2014 Reg 5." />}
+
+      {view === "table" && filtered.length > 0 && (
+        <Tbl heads={["Activity / Task", "Hazard", "Persons at Risk", "Residual Risk", "Assessed By", "Assessed Date", "Review Date", "Status", ""]}>
+          {filtered.map(r => (
+            <TR key={r.id}>
+              <td style={{ padding: "10px 12px", fontSize: 12, fontWeight: 600, color: C.text, maxWidth: 160 }}>{r.activity}</td>
+              <td style={{ padding: "10px 12px", fontSize: 11, color: C.muted, maxWidth: 140 }}>{r.hazard}</td>
+              <td style={{ padding: "10px 12px", fontSize: 11, color: C.muted }}>{r.personsAtRisk || "—"}</td>
+              <td style={{ padding: "10px 12px" }}>
+                <span style={{ background: (RISK_MATRIX[r.riskRatingAfter] || RISK_MATRIX["Low"]).bg, color: riskColor(r.riskRatingAfter), border: `1px solid ${riskColor(r.riskRatingAfter)}55`, borderRadius: 20, padding: "2px 10px", fontSize: 11, fontWeight: 700, whiteSpace: "nowrap" }}>
+                  {r.riskRatingAfter || "—"}
+                </span>
+              </td>
+              <td style={{ padding: "10px 12px", fontSize: 11, color: C.muted }}>{r.assessedBy || "—"}</td>
+              <td style={{ padding: "10px 12px", fontSize: 11, color: C.muted }}>{r.assessedDate ? fmt(r.assessedDate) : "—"}</td>
+              <td style={{ padding: "10px 12px", fontSize: 11, color: r.reviewDate && r.reviewDate <= today() ? C.red : C.muted }}>
+                {r.reviewDate ? fmt(r.reviewDate) : "—"}
+              </td>
+              <td style={{ padding: "10px 12px" }}><Pill label={r.status || "Active"} color={r.status === "Active" ? "green" : r.status === "Under Review" ? "yellow" : "gray"} /></td>
+              <td style={{ padding: "10px 12px", whiteSpace: "nowrap" }}>
+                {can(currentUser, "canEdit") && <button onClick={() => { setForm({ ...r }); setShowModal(true); }} style={{ background: "none", border: "none", cursor: "pointer", color: C.muted, fontSize: 13, marginRight: 8 }}>✎</button>}
+                {can(currentUser, "canDelete") && <button onClick={() => del("mcw_riskassess", setRiskAssessments, riskAssessments, r.id)} style={{ background: "none", border: "none", cursor: "pointer", color: C.muted, fontSize: 14 }}>×</button>}
+              </td>
+            </TR>
+          ))}
+        </Tbl>
+      )}
+
+      {view === "cards" && filtered.length > 0 && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(300px,1fr))", gap: 14 }}>
+          {filtered.map(r => {
+            const rm = RISK_MATRIX[r.riskRatingAfter] || RISK_MATRIX["Low"];
+            return (
+              <Card key={r.id} style={{ borderLeft: `4px solid ${rm.color}` }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
+                  <div style={{ fontWeight: 700, fontSize: 13, color: C.text, flex: 1, marginRight: 8 }}>{r.activity}</div>
+                  <span style={{ background: rm.bg, color: rm.color, border: `1px solid ${rm.color}55`, borderRadius: 20, padding: "2px 10px", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>{r.riskRatingAfter}</span>
+                </div>
+                <div style={{ fontSize: 11.5, color: C.muted, marginBottom: 8 }}><strong>Hazard:</strong> {r.hazard}</div>
+                {r.existingControls && <div style={{ fontSize: 11, color: C.text, marginBottom: 6, background: C.surface, borderRadius: 6, padding: "6px 10px", lineHeight: 1.45 }}><strong>Controls:</strong> {r.existingControls}</div>}
+                {r.additionalControls && <div style={{ fontSize: 11, color: C.red, marginBottom: 6, background: "#FEF2F2", borderRadius: 6, padding: "6px 10px", lineHeight: 1.45 }}><strong>Additional required:</strong> {r.additionalControls}</div>}
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: C.muted, marginTop: 8, paddingTop: 8, borderTop: `1px solid ${C.border}` }}>
+                  <span>{r.assessedBy ? `By: ${r.assessedBy}` : "Not yet assessed"}</span>
+                  <span>{r.reviewDate ? `Review: ${fmt(r.reviewDate)}` : "No review date"}</span>
+                </div>
+                <div style={{ display: "flex", gap: 8, marginTop: 8, justifyContent: "flex-end" }}>
+                  {can(currentUser, "canEdit") && <button onClick={() => { setForm({ ...r }); setShowModal(true); }} style={{ background: "none", border: "none", cursor: "pointer", color: C.muted, fontSize: 12 }}>✎ Edit</button>}
+                  {can(currentUser, "canDelete") && <button onClick={() => del("mcw_riskassess", setRiskAssessments, riskAssessments, r.id)} style={{ background: "none", border: "none", cursor: "pointer", color: C.muted, fontSize: 12 }}>× Delete</button>}
+                </div>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+
+      {showModal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ background: C.white, borderRadius: 14, padding: 28, width: "min(640px,96vw)", maxHeight: "92vh", overflowY: "auto", boxShadow: "0 24px 60px rgba(0,0,0,0.35)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+              <div style={{ fontWeight: 800, fontSize: 15, color: C.text }}>{form.id ? "Edit Risk Assessment" : "New Risk Assessment"}</div>
+              <button onClick={() => { setShowModal(false); setForm(blank); }} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 22, color: C.muted }}>×</button>
+            </div>
+
+            <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>1 · Hazard Identification</div>
+            <Row2>
+              <Field label="Activity / Task" required>
+                <select value={form.activity} onChange={e => set("activity", e.target.value)} style={inp}>
+                  <option value="">— Select Activity —</option>
+                  {RISK_ACTIVITIES.map(a => <option key={a} value={a}>{a}</option>)}
+                </select>
+              </Field>
+              <Field label="Hazard Identified" required>
+                <select value={form.hazard} onChange={e => set("hazard", e.target.value)} style={inp}>
+                  <option value="">— Select Hazard —</option>
+                  {RISK_HAZARDS.map(h => <option key={h} value={h}>{h}</option>)}
+                </select>
+              </Field>
+            </Row2>
+            <Row2>
+              <Field label="Persons at Risk">
+                <select value={form.personsAtRisk} onChange={e => set("personsAtRisk", e.target.value)} style={inp}>
+                  <option value="">— Select —</option>
+                  {PERSONS_AT_RISK.map(p => <option key={p} value={p}>{p}</option>)}
+                </select>
+              </Field>
+              <Field label="Linked Asset / Plant (optional)">
+                <select value={form.linkedAssetId} onChange={e => set("linkedAssetId", e.target.value)} style={inp}>
+                  <option value="">— None —</option>
+                  {assets.map(a => <option key={a.id} value={a.id}>{a.name || a.fleet || a.id}</option>)}
+                </select>
+              </Field>
+            </Row2>
+            <Field label="Existing Controls in Place">
+              <textarea value={form.existingControls} onChange={e => set("existingControls", e.target.value)} rows={2} placeholder="PPE requirements, barriers, signage, procedures..." style={{ ...inp, height: "auto" }} />
+            </Field>
+
+            <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 1, margin: "18px 0 10px" }}>2 · Initial Risk Rating (Before Additional Controls)</div>
+            <Row2>
+              <ScoreSelect label="Likelihood (1–5)" val={form.likelihoodBefore} onChange={v => handleL("likelihoodBefore", v)} />
+              <ScoreSelect label="Severity (1–5)" val={form.severityBefore} onChange={v => handleS("severityBefore", v)} />
+            </Row2>
+            <div style={{ background: (RISK_MATRIX[form.riskRatingBefore] || RISK_MATRIX["Low"]).bg, border: `1px solid ${riskColor(form.riskRatingBefore)}`, borderRadius: 8, padding: "10px 14px", marginBottom: 16, fontSize: 12, fontWeight: 700, color: riskColor(form.riskRatingBefore) }}>
+              Initial Risk: {form.riskRatingBefore} (Score: {Number(form.likelihoodBefore) * Number(form.severityBefore)}) — {(RISK_MATRIX[form.riskRatingBefore] || RISK_MATRIX["Low"]).label}
+            </div>
+
+            <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>3 · Additional Controls &amp; Residual Risk</div>
+            <Field label="Additional Controls Required">
+              <textarea value={form.additionalControls} onChange={e => set("additionalControls", e.target.value)} rows={2} placeholder="Engineering controls, admin controls, additional PPE..." style={{ ...inp, height: "auto" }} />
+            </Field>
+            <Row2>
+              <ScoreSelect label="Residual Likelihood" val={form.likelihoodAfter} onChange={v => handleL("likelihoodAfter", v)} />
+              <ScoreSelect label="Residual Severity" val={form.severityAfter} onChange={v => handleS("severityAfter", v)} />
+            </Row2>
+            <div style={{ background: (RISK_MATRIX[form.riskRatingAfter] || RISK_MATRIX["Low"]).bg, border: `1px solid ${riskColor(form.riskRatingAfter)}`, borderRadius: 8, padding: "10px 14px", marginBottom: 16, fontSize: 12, fontWeight: 700, color: riskColor(form.riskRatingAfter) }}>
+              Residual Risk: {form.riskRatingAfter} (Score: {Number(form.likelihoodAfter) * Number(form.severityAfter)}) — {(RISK_MATRIX[form.riskRatingAfter] || RISK_MATRIX["Low"]).label}
+            </div>
+
+            <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>4 · Sign-off &amp; Review</div>
+            <Row2>
+              <Field label="Assessed By">
+                <input value={form.assessedBy} onChange={e => set("assessedBy", e.target.value)} style={inp} />
+              </Field>
+              <Field label="Assessment Date">
+                <input type="date" value={form.assessedDate} onChange={e => set("assessedDate", e.target.value)} style={inp} />
+              </Field>
+            </Row2>
+            <Row2>
+              <Field label="Approved By">
+                <input value={form.approvedBy} onChange={e => set("approvedBy", e.target.value)} style={inp} />
+              </Field>
+              <Field label="Approval Date">
+                <input type="date" value={form.approvedDate} onChange={e => set("approvedDate", e.target.value)} style={inp} />
+              </Field>
+            </Row2>
+            <Row2>
+              <Field label="Next Review Date">
+                <input type="date" value={form.reviewDate} onChange={e => set("reviewDate", e.target.value)} style={inp} />
+              </Field>
+              <Field label="Status">
+                <select value={form.status} onChange={e => set("status", e.target.value)} style={inp}>
+                  <option value="Active">Active</option>
+                  <option value="Under Review">Under Review</option>
+                  <option value="Superseded">Superseded</option>
+                  <option value="Archived">Archived</option>
+                </select>
+              </Field>
+            </Row2>
+            <Field label="Notes">
+              <textarea value={form.notes} onChange={e => set("notes", e.target.value)} rows={2} style={{ ...inp, height: "auto" }} />
+            </Field>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 20 }}>
+              <Btn variant="outline" onClick={() => { setShowModal(false); setForm(blank); }}>Cancel</Btn>
+              <Btn onClick={save}>{form.id ? "Save Changes" : "Add Assessment"}</Btn>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── TRAINING & TOOLBOX TALK REGISTER ─────────────────────────────────────────
+const TRAINING_TYPES = [
+  "Site Induction (OHSA)", "Toolbox Talk", "Equipment-Specific Training",
+  "First Aid / Emergency Response", "Fire Fighting", "Working at Heights",
+  "Confined Space Entry", "Hazmat / Chemical Handling", "Manual Handling",
+  "HIV / Wellness Awareness", "Environmental Awareness",
+  "Quality / ISO Awareness", "Supervisory Skills", "External Course / Certificate", "Other"
+];
+const TRAINING_PROVIDERS = [
+  "Internal (Company)", "TETA Accredited Provider", "CETA Accredited Provider",
+  "MERSETA Provider", "OHSA Approved Body", "Red Cross / St John's",
+  "Equipment Manufacturer / OEM", "Other External Provider"
+];
+
+function TrainingTab({ trainingRecords, setTrainingRecords, employees, currentUser,
+  add, update, del, toast, can, fmt, today,
+  C, inp, Field, Row2, Btn, Card, Tbl, TR, Empty, KPI, Pill, PageTitle }) {
+
+  const blank = {
+    type: "Toolbox Talk", trainingType: "", topic: "", provider: "", site: "",
+    trainingDate: "", duration: "", facilitator: "",
+    attendees: [], // for toolbox talks
+    employeeId: "", // for individual training
+    certNo: "", expiryDate: "",
+    notes: ""
+  };
+  const [form, setForm] = useState(blank);
+  const [showModal, setShowModal] = useState(false);
+  const [selectedAttendees, setSelectedAttendees] = useState([]);
+  const [filterType, setFilterType] = useState("all");
+  const [search, setSearch] = useState("");
+  const [view, setView] = useState("table");
+
+  const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
+  const empName = id => { const e = employees.find(x => x.id === id); return e ? (e.name || `${e.firstName||""} ${e.lastName||""}`.trim()) : id; };
+
+  const isToolbox = form.type === "Toolbox Talk";
+
+  const filtered = trainingRecords.filter(r => {
+    if (filterType !== "all" && r.type !== filterType) return false;
+    if (search) {
+      const q = search.toLowerCase();
+      return (r.topic || "").toLowerCase().includes(q) || (r.trainingType || "").toLowerCase().includes(q) || empName(r.employeeId).toLowerCase().includes(q);
+    }
+    return true;
+  });
+
+  const toolboxCount = trainingRecords.filter(r => r.type === "Toolbox Talk").length;
+  const indivCount = trainingRecords.filter(r => r.type !== "Toolbox Talk").length;
+  const totalAttendees = trainingRecords.filter(r => r.type === "Toolbox Talk").reduce((s, r) => s + (r.attendees ? r.attendees.length : 0), 0);
+  const expiring = trainingRecords.filter(r => r.expiryDate && r.expiryDate <= today()).length;
+
+  const uniqueInducted = new Set(
+    trainingRecords.filter(r => r.trainingType === "Site Induction (OHSA)" || r.type === "Site Induction").map(r => r.employeeId)
+  ).size;
+
+  const save = () => {
+    if (!form.trainingType && !form.topic) return toast("Training type or topic is required", "error");
+    if (!isToolbox && !form.employeeId) return toast("Employee is required for individual training", "error");
+    const record = isToolbox
+      ? { ...form, attendees: selectedAttendees }
+      : { ...form };
+    if (form.id) { update("mcw_training", setTrainingRecords, trainingRecords, form.id, record); toast("Record updated"); }
+    else { add("mcw_training", setTrainingRecords, trainingRecords, record); toast("Training record added"); }
+    setShowModal(false); setForm(blank); setSelectedAttendees([]);
+  };
+
+  const toggleAttendee = id => {
+    setSelectedAttendees(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  };
+
+  const openModal = (record = null) => {
+    if (record) {
+      setForm({ ...record });
+      setSelectedAttendees(record.attendees || []);
+    } else {
+      setForm(blank);
+      setSelectedAttendees([]);
+    }
+    setShowModal(true);
+  };
+
+  return (
+    <div>
+      <PageTitle
+        title="TRAINING & TOOLBOX TALK REGISTER"
+        sub="OHSA Section 8 — training records, toolbox talk attendance sheets and site induction register"
+        action={can(currentUser, "canAdd") && (
+          <Btn onClick={() => openModal()}><GraduationCap size={13} strokeWidth={1.75} style={{ marginRight: 5 }} />Add Record</Btn>
+        )}
+      />
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 12, marginBottom: 22 }}>
+        <KPI label="Toolbox Talks" value={toolboxCount} icon={BookOpen} color={C.info} sub="total sessions" />
+        <KPI label="Total Attendances" value={totalAttendees} icon={Users2} color="#7c3aed" sub="toolbox sign-ins" />
+        <KPI label="Individual Training" value={indivCount} icon={GraduationCap} color="#16a34a" sub="personal records" />
+        <KPI label="Site Inducted" value={uniqueInducted} icon={BookCheck} color="#d97706" sub="unique employees" />
+        <KPI label="Certs Expired" value={expiring} icon={ShieldAlert} color={expiring > 0 ? C.red : C.muted} sub="action required" />
+      </div>
+
+      <div style={{ display: "flex", gap: 10, marginBottom: 18, flexWrap: "wrap", alignItems: "center" }}>
+        <select value={filterType} onChange={e => setFilterType(e.target.value)} style={{ ...inp, width: 180 }}>
+          <option value="all">All Types</option>
+          <option value="Toolbox Talk">Toolbox Talks</option>
+          {TRAINING_TYPES.filter(t => t !== "Toolbox Talk").map(t => <option key={t} value={t}>{t}</option>)}
+        </select>
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search topic / employee..." style={{ ...inp, width: 200 }} />
+        <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+          <Btn variant={view === "table" ? "primary" : "outline"} size="sm" onClick={() => setView("table")}>Table</Btn>
+          <Btn variant={view === "cards" ? "primary" : "outline"} size="sm" onClick={() => setView("cards")}>Cards</Btn>
+        </div>
+      </div>
+
+      {filtered.length === 0 && <Empty icon={GraduationCap} title="No training records yet" desc="Log toolbox talks, site inductions and individual training to build your OHSA-compliant training register." />}
+
+      {view === "table" && filtered.length > 0 && (
+        <Tbl heads={["Type", "Topic / Training", "Date", "Attendee / Employee", "Facilitator / Provider", "Duration", "Cert Expiry", ""]}>
+          {filtered.map(r => (
+            <TR key={r.id}>
+              <td style={{ padding: "10px 12px" }}>
+                <Pill label={r.type === "Toolbox Talk" ? "Toolbox Talk" : "Training"} color={r.type === "Toolbox Talk" ? "blue" : "green"} />
+              </td>
+              <td style={{ padding: "10px 12px", fontSize: 12, fontWeight: 600, color: C.text }}>{r.topic || r.trainingType}</td>
+              <td style={{ padding: "10px 12px", fontSize: 11, color: C.muted }}>{r.trainingDate ? fmt(r.trainingDate) : "—"}</td>
+              <td style={{ padding: "10px 12px", fontSize: 11, color: C.text }}>
+                {r.type === "Toolbox Talk"
+                  ? <span style={{ color: C.info, fontWeight: 600 }}>{(r.attendees || []).length} attendees</span>
+                  : empName(r.employeeId)}
+              </td>
+              <td style={{ padding: "10px 12px", fontSize: 11, color: C.muted }}>{r.facilitator || r.provider || "—"}</td>
+              <td style={{ padding: "10px 12px", fontSize: 11, color: C.muted }}>{r.duration ? `${r.duration} hrs` : "—"}</td>
+              <td style={{ padding: "10px 12px", fontSize: 11, color: r.expiryDate && r.expiryDate <= today() ? C.red : C.muted }}>
+                {r.expiryDate ? fmt(r.expiryDate) : "—"}
+              </td>
+              <td style={{ padding: "10px 12px", whiteSpace: "nowrap" }}>
+                {can(currentUser, "canEdit") && <button onClick={() => openModal(r)} style={{ background: "none", border: "none", cursor: "pointer", color: C.muted, fontSize: 13, marginRight: 8 }}>✎</button>}
+                {can(currentUser, "canDelete") && <button onClick={() => del("mcw_training", setTrainingRecords, trainingRecords, r.id)} style={{ background: "none", border: "none", cursor: "pointer", color: C.muted, fontSize: 14 }}>×</button>}
+              </td>
+            </TR>
+          ))}
+        </Tbl>
+      )}
+
+      {view === "cards" && filtered.length > 0 && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(280px,1fr))", gap: 14 }}>
+          {filtered.map(r => (
+            <Card key={r.id} style={{ borderTop: `3px solid ${r.type === "Toolbox Talk" ? C.info : "#16a34a"}` }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+                <div style={{ fontWeight: 700, fontSize: 13, color: C.text }}>{r.topic || r.trainingType}</div>
+                <Pill label={r.type === "Toolbox Talk" ? "Toolbox" : "Training"} color={r.type === "Toolbox Talk" ? "blue" : "green"} />
+              </div>
+              <div style={{ fontSize: 11, color: C.muted, marginBottom: 8 }}>
+                {r.trainingDate ? fmt(r.trainingDate) : "No date"}
+                {r.site ? ` · ${r.site}` : ""}
+                {r.duration ? ` · ${r.duration} hrs` : ""}
+              </div>
+              {r.type === "Toolbox Talk" ? (
+                <div style={{ fontSize: 11.5, color: C.text }}>
+                  <strong>{(r.attendees || []).length}</strong> {(r.attendees || []).length === 1 ? "attendee" : "attendees"}
+                  {r.attendees && r.attendees.length > 0 && (
+                    <div style={{ marginTop: 4, color: C.muted, fontSize: 10.5, lineHeight: 1.5 }}>
+                      {r.attendees.slice(0, 4).map(id => empName(id)).join(", ")}{r.attendees.length > 4 ? ` +${r.attendees.length - 4} more` : ""}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div style={{ fontSize: 11.5, color: C.text }}><strong>Employee:</strong> {empName(r.employeeId)}</div>
+              )}
+              {r.facilitator && <div style={{ fontSize: 11, color: C.muted, marginTop: 4 }}>Facilitator: {r.facilitator}</div>}
+              {r.expiryDate && <div style={{ fontSize: 11, color: r.expiryDate <= today() ? C.red : C.muted, marginTop: 4 }}>Cert expiry: {fmt(r.expiryDate)}</div>}
+              <div style={{ display: "flex", gap: 8, marginTop: 10, justifyContent: "flex-end" }}>
+                {can(currentUser, "canEdit") && <button onClick={() => openModal(r)} style={{ background: "none", border: "none", cursor: "pointer", color: C.muted, fontSize: 12 }}>✎ Edit</button>}
+                {can(currentUser, "canDelete") && <button onClick={() => del("mcw_training", setTrainingRecords, trainingRecords, r.id)} style={{ background: "none", border: "none", cursor: "pointer", color: C.muted, fontSize: 12 }}>× Delete</button>}
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {showModal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ background: C.white, borderRadius: 14, padding: 28, width: "min(580px,96vw)", maxHeight: "92vh", overflowY: "auto", boxShadow: "0 24px 60px rgba(0,0,0,0.35)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+              <div style={{ fontWeight: 800, fontSize: 15, color: C.text }}>{form.id ? "Edit Record" : "Add Training / Toolbox Talk"}</div>
+              <button onClick={() => { setShowModal(false); setForm(blank); setSelectedAttendees([]); }} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 22, color: C.muted }}>×</button>
+            </div>
+
+            {/* Record type toggle */}
+            <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+              {["Toolbox Talk", "Individual Training"].map(t => (
+                <button key={t} onClick={() => set("type", t)} style={{ flex: 1, padding: "8px 0", borderRadius: 8, border: `1px solid ${form.type === t ? C.red : C.border}`, background: form.type === t ? C.red : C.white, color: form.type === t ? C.white : C.muted, fontWeight: 600, fontSize: 12, cursor: "pointer" }}>
+                  {t}
+                </button>
+              ))}
+            </div>
+
+            <Row2>
+              <Field label="Training Type" required>
+                <select value={form.trainingType} onChange={e => set("trainingType", e.target.value)} style={inp}>
+                  <option value="">— Select —</option>
+                  {TRAINING_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </Field>
+              <Field label="Topic / Subject">
+                <input value={form.topic} onChange={e => set("topic", e.target.value)} placeholder="e.g. Safe use of angle grinder" style={inp} />
+              </Field>
+            </Row2>
+            <Row2>
+              <Field label="Date">
+                <input type="date" value={form.trainingDate} onChange={e => set("trainingDate", e.target.value)} style={inp} />
+              </Field>
+              <Field label="Duration (hours)">
+                <input type="number" value={form.duration} onChange={e => set("duration", e.target.value)} min="0" step="0.5" style={inp} />
+              </Field>
+            </Row2>
+            <Row2>
+              <Field label={isToolbox ? "Facilitator" : "Training Provider"}>
+                <input value={isToolbox ? form.facilitator : form.provider}
+                  onChange={e => set(isToolbox ? "facilitator" : "provider", e.target.value)}
+                  placeholder={isToolbox ? "Facilitator name" : "Provider / institution"} style={inp} />
+              </Field>
+              <Field label="Site / Location">
+                <input value={form.site} onChange={e => set("site", e.target.value)} placeholder="e.g. Head Office, Site B" style={inp} />
+              </Field>
+            </Row2>
+
+            {!isToolbox && (
+              <>
+                <Field label="Employee" required>
+                  <select value={form.employeeId} onChange={e => set("employeeId", e.target.value)} style={inp}>
+                    <option value="">— Select Employee —</option>
+                    {employees.map(e => <option key={e.id} value={e.id}>{e.name || `${e.firstName||""} ${e.lastName||""}`.trim()}</option>)}
+                  </select>
+                </Field>
+                <Row2>
+                  <Field label="Certificate / Reference No.">
+                    <input value={form.certNo} onChange={e => set("certNo", e.target.value)} style={inp} />
+                  </Field>
+                  <Field label="Certificate Expiry Date">
+                    <input type="date" value={form.expiryDate} onChange={e => set("expiryDate", e.target.value)} style={inp} />
+                  </Field>
+                </Row2>
+              </>
+            )}
+
+            {isToolbox && (
+              <Field label="Attendees (select all who attended)">
+                <div style={{ border: `1px solid ${C.border}`, borderRadius: 8, maxHeight: 200, overflowY: "auto", padding: "8px 4px" }}>
+                  {employees.length === 0 && <div style={{ padding: "8px 12px", fontSize: 11, color: C.muted }}>No employees registered yet.</div>}
+                  {employees.map(e => {
+                    const id = e.id;
+                    const name = e.name || `${e.firstName||""} ${e.lastName||""}`.trim();
+                    const checked = selectedAttendees.includes(id);
+                    return (
+                      <label key={id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 12px", cursor: "pointer", borderRadius: 6, background: checked ? "#EEF2FF" : "transparent" }}>
+                        <input type="checkbox" checked={checked} onChange={() => toggleAttendee(id)} style={{ width: 14, height: 14, accentColor: C.red }} />
+                        <span style={{ fontSize: 12, color: C.text }}>{name}</span>
+                        {e.role && <span style={{ fontSize: 10, color: C.muted, marginLeft: "auto" }}>{e.role}</span>}
+                      </label>
+                    );
+                  })}
+                </div>
+                <div style={{ fontSize: 10.5, color: C.muted, marginTop: 4 }}>{selectedAttendees.length} of {employees.length} selected</div>
+              </Field>
+            )}
+
+            <Field label="Notes">
+              <textarea value={form.notes} onChange={e => set("notes", e.target.value)} rows={2} style={{ ...inp, height: "auto" }} />
+            </Field>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 20 }}>
+              <Btn variant="outline" onClick={() => { setShowModal(false); setForm(blank); setSelectedAttendees([]); }}>Cancel</Btn>
+              <Btn onClick={save}>{form.id ? "Save Changes" : "Add Record"}</Btn>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── INSURANCE REGISTER ───────────────────────────────────────────────────────
 const INS_TYPES = [
   "Plant All Risk", "Comprehensive (Vehicle)", "Third Party Only", "Goods in Transit",
@@ -5470,6 +6070,8 @@ export default function App() {
       ["opfitness",     setOpFitness],
       ["insurance",     setInsurancePolicies],
       ["coid",          setCoidRecords],
+      ["riskassess",    setRiskAssessments],
+      ["training",      setTrainingRecords],
     ];
     const unsubscribers = realTimeCollections.map(([name, setter]) => {
       return onSnapshot(collection(db, name), (snapshot) => {
@@ -5539,6 +6141,8 @@ export default function App() {
       ["opfitness",     setOpFitness],
       ["insurance",     setInsurancePolicies],
       ["coid",          setCoidRecords],
+      ["riskassess",    setRiskAssessments],
+      ["training",      setTrainingRecords],
     ];
 
     for (const [name, setter] of collections) {
@@ -5807,6 +6411,8 @@ export default function App() {
   const [opFitness, setOpFitness] = useState([]);
   const [insurancePolicies, setInsurancePolicies] = useState([]);
   const [coidRecords, setCoidRecords] = useState([]);
+  const [riskAssessments, setRiskAssessments] = useState([]);
+  const [trainingRecords, setTrainingRecords] = useState([]);
   const [purchaseOrders, setPurchaseOrders] = useState([]);
   const [hireReqs, setHireReqs] = useState([]);
   const dCon = {
@@ -16008,6 +16614,32 @@ input:focus,select:focus,textarea:focus{border-color:${C.red}!important;box-shad
               coidRecords={coidRecords} setCoidRecords={setCoidRecords}
               employees={employees} assets={assets} incidents={incidents}
               currentUser={currentUser}
+              add={add} update={update} del={del}
+              toast={toast} can={can} fmt={fmt} today={today}
+              C={C} inp={inp} Field={Field} Row2={Row2}
+              Btn={Btn} Card={Card} Tbl={Tbl} TR={TR} Empty={Empty}
+              KPI={KPI} Pill={Pill} PageTitle={PageTitle}
+            />
+          )}
+
+          {/* RISK ASSESSMENT REGISTER */}
+          {tab === "RiskAssess" && (
+            <RiskAssessTab
+              riskAssessments={riskAssessments} setRiskAssessments={setRiskAssessments}
+              assets={assets} employees={employees} currentUser={currentUser}
+              add={add} update={update} del={del}
+              toast={toast} can={can} fmt={fmt} today={today}
+              C={C} inp={inp} Field={Field} Row2={Row2}
+              Btn={Btn} Card={Card} Tbl={Tbl} TR={TR} Empty={Empty}
+              KPI={KPI} Pill={Pill} PageTitle={PageTitle}
+            />
+          )}
+
+          {/* TRAINING & TOOLBOX TALKS */}
+          {tab === "Training" && (
+            <TrainingTab
+              trainingRecords={trainingRecords} setTrainingRecords={setTrainingRecords}
+              employees={employees} currentUser={currentUser}
               add={add} update={update} del={del}
               toast={toast} can={can} fmt={fmt} today={today}
               C={C} inp={inp} Field={Field} Row2={Row2}
