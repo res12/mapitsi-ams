@@ -424,6 +424,8 @@ function Pill({ text, color = "gray" }) {
 }
 
 function KPI({ label, value, sub, color, icon }) {
+  // icon can be a Lucide component reference OR a legacy string/emoji
+  const IconEl = typeof icon === "function" ? icon : null;
   return (
     <div
       className="kpi-hover"
@@ -458,8 +460,10 @@ function KPI({ label, value, sub, color, icon }) {
             width: 30, height: 30, borderRadius: 8,
             background: `${color}18`,
             display: "flex", alignItems: "center", justifyContent: "center",
-            fontSize: 14, color,
-          }}>{icon}</div>
+            color,
+          }}>
+            {IconEl ? <IconEl size={15} strokeWidth={1.75} /> : <span style={{ fontSize: 13 }}>{icon}</span>}
+          </div>
         </div>
         <div style={{
           fontSize: 26,
@@ -1337,12 +1341,12 @@ function PurchaseOrdersTab({ purchaseOrders, setPurchaseOrders, suppliers, spare
 
       {/* KPIs */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(155px,1fr))",gap:14,marginBottom:22}}>
-        <KPI label="Total POs" value={purchaseOrders.length} color={C.info} icon="📦" sub="all time"/>
-        <KPI label="Open / Pending" value={openPOs} color={openPOs>0?C.warn:C.success} icon="⚑" sub="awaiting action"/>
-        <KPI label="Total PO Value" value={fmt(totalValue)} color={C.muted} icon="₽" sub="all orders"/>
-        <KPI label="Pending Value" value={fmt(pendingValue)} color={pendingValue>0?C.warn:C.success} icon="₽" sub="not yet received"/>
-        <KPI label="Fully Received" value={purchaseOrders.filter(p=>p.status==="Fully Received").length} color={C.success} icon="✓" sub="completed"/>
-        <KPI label="Draft / Pending Approval" value={purchaseOrders.filter(p=>["Draft","Awaiting Approval"].includes(p.status)).length} color={C.muted} icon="✎" sub="in progress"/>
+        <KPI label="Total POs" value={purchaseOrders.length} color={C.info} icon={ShoppingCart} sub="all time"/>
+        <KPI label="Open / Pending" value={openPOs} color={openPOs>0?C.warn:C.success} icon={Bell} sub="awaiting action"/>
+        <KPI label="Total PO Value" value={fmt(totalValue)} color={C.muted} icon={Receipt} sub="all orders"/>
+        <KPI label="Pending Value" value={fmt(pendingValue)} color={pendingValue>0?C.warn:C.success} icon={Wallet} sub="not yet received"/>
+        <KPI label="Fully Received" value={purchaseOrders.filter(p=>p.status==="Fully Received").length} color={C.success} icon={BadgeCheck} sub="completed"/>
+        <KPI label="Draft / Pending Approval" value={purchaseOrders.filter(p=>["Draft","Awaiting Approval"].includes(p.status)).length} color={C.muted} icon={FileText} sub="in progress"/>
       </div>
 
       {/* Filter chips */}
@@ -1690,12 +1694,12 @@ function JobCardsTab({ assets, jobCards, setJobCards, spares, setSpares, maint, 
 
       {/* KPIs */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(155px,1fr))",gap:14,marginBottom:22}}>
-        <KPI label="Total Job Cards" value={jobCards.length} color={C.info} icon="🔧" sub="all time"/>
-        <KPI label="Open / Active" value={openJCs} color={openJCs>0?C.warn:C.success} icon="⚑" sub="requiring attention"/>
-        <KPI label="Critical Priority" value={criticalJCs} color={criticalJCs>0?C.red:C.success} icon="⚠" sub="immediate action"/>
-        <KPI label="Total Repair Cost" value={fmt(totalRepairCost)} color={C.muted} icon="₽" sub="all completed cards"/>
-        <KPI label="Avg Resolution" value={avgResolutionDays?`${avgResolutionDays}d`:"—"} color={C.info} icon="◷" sub="days to complete"/>
-        <KPI label="Completed" value={jobCards.filter(j=>j.status==="Complete"||j.status==="Invoiced").length} color={C.success} icon="✓" sub="closed cards"/>
+        <KPI label="Total Job Cards" value={jobCards.length} color={C.info} icon={Hammer} sub="all time"/>
+        <KPI label="Open / Active" value={openJCs} color={openJCs>0?C.warn:C.success} icon={Bell} sub="requiring attention"/>
+        <KPI label="Critical Priority" value={criticalJCs} color={criticalJCs>0?C.red:C.success} icon={AlertTriangle} sub="immediate action"/>
+        <KPI label="Total Repair Cost" value={fmt(totalRepairCost)} color={C.muted} icon={Receipt} sub="all completed cards"/>
+        <KPI label="Avg Resolution" value={avgResolutionDays?`${avgResolutionDays}d`:"—"} color={C.info} icon={Clock} sub="days to complete"/>
+        <KPI label="Completed" value={jobCards.filter(j=>j.status==="Complete"||j.status==="Invoiced").length} color={C.success} icon={BadgeCheck} sub="closed cards"/>
       </div>
 
       {/* CRITICAL BANNER */}
@@ -2903,11 +2907,11 @@ function HireReqsTab({ hireReqs, setHireReqs, assets, projects, employees, suppl
       />
 
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(155px,1fr))",gap:14,marginBottom:22}}>
-        <KPI label="Total Requisitions" value={hireReqs.length}    color={C.info}    icon="📋" sub="all time"/>
-        <KPI label="Awaiting Approval"  value={awaitingApproval}   color={awaitingApproval>0?C.warn:C.success} icon="⏳" sub="pending review"/>
-        <KPI label="Currently Active"   value={active}             color={active>0?C.success:C.muted}          icon="▶" sub="on site"/>
-        <KPI label="Open / In Progress" value={openPending}        color={openPending>0?C.warn:C.success}      icon="⚑" sub="needs action"/>
-        <KPI label="Est. Total Cost"    value={fmt(totalCost)}     color={C.muted}   icon="₽" sub="all requisitions"/>
+        <KPI label="Total Requisitions" value={hireReqs.length}    color={C.info}    icon={ClipboardList} sub="all time"/>
+        <KPI label="Awaiting Approval"  value={awaitingApproval}   color={awaitingApproval>0?C.warn:C.success} icon={Clock} sub="pending review"/>
+        <KPI label="Currently Active"   value={active}             color={active>0?C.success:C.muted}          icon={Truck} sub="on site"/>
+        <KPI label="Open / In Progress" value={openPending}        color={openPending>0?C.warn:C.success}      icon={Bell} sub="needs action"/>
+        <KPI label="Est. Total Cost"    value={fmt(totalCost)}     color={C.muted}   icon={Receipt} sub="all requisitions"/>
       </div>
 
       {awaitingApproval>0&&(
@@ -3438,12 +3442,12 @@ function FleetMapTab({ assets, maint, fuel, incidents, conditions, transfers, pr
 
       {/* KPI STRIP */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 14, marginBottom: 22 }}>
-        <KPI label="Total Assets" value={assets.length} color={C.info} icon="◉" sub="on register" />
-        <KPI label="Active" value={totalActive} color={C.success} icon="▶" sub="deployed" />
-        <KPI label="Under Maintenance" value={totalMaint} color={C.warn} icon="🔧" sub="off-road" />
-        <KPI label="Critical Alerts" value={criticalCount} color={criticalCount > 0 ? C.red : C.success} icon="⚑" sub="need attention" />
-        <KPI label="Needs Attention" value={warnCount} color={warnCount > 0 ? C.warn : C.success} icon="⚐" sub="monitor" />
-        <KPI label="Sites Active" value={assetsBySite.filter(s => s.assets.length > 0).length} color={C.muted} icon="📍" sub={`of ${siteNames.length}`} />
+        <KPI label="Total Assets" value={assets.length} color={C.info} icon={Database} sub="on register" />
+        <KPI label="Active" value={totalActive} color={C.success} icon={Activity} sub="deployed" />
+        <KPI label="Under Maintenance" value={totalMaint} color={C.warn} icon={Wrench} sub="off-road" />
+        <KPI label="Critical Alerts" value={criticalCount} color={criticalCount > 0 ? C.red : C.success} icon={AlertTriangle} sub="need attention" />
+        <KPI label="Needs Attention" value={warnCount} color={warnCount > 0 ? C.warn : C.success} icon={Bell} sub="monitor" />
+        <KPI label="Sites Active" value={assetsBySite.filter(s => s.assets.length > 0).length} color={C.muted} icon={Map} sub={`of ${siteNames.length}`} />
       </div>
 
       {/* LEGEND */}
@@ -6503,7 +6507,7 @@ input:focus,select:focus,textarea:focus{border-color:${C.red}!important;box-shad
                         display: "flex",
                         alignItems: "center",
                         gap: 9,
-                        padding: side ? "7px 10px" : "8px 0",
+                        padding: side ? "7px 10px" : "7px 0",
                         justifyContent: side ? "flex-start" : "center",
                         borderRadius: 8,
                         border: "none",
@@ -6531,12 +6535,12 @@ input:focus,select:focus,textarea:focus{border-color:${C.red}!important;box-shad
                       {/* Icon */}
                       <span style={{
                         flexShrink: 0,
-                        opacity: a ? 1 : 0.45,
+                        opacity: a ? 1 : 0.5,
                         filter: a ? `drop-shadow(0 0 4px ${C.redGlow})` : "none",
                         transition: "all 0.15s",
                         display: "flex", alignItems: "center",
                       }}>
-                        <n.ico size={14} strokeWidth={1.75} />
+                        <n.ico size={side ? 14 : 16} strokeWidth={1.65} />
                       </span>
                       {side && (
                         <span style={{
@@ -6622,20 +6626,20 @@ input:focus,select:focus,textarea:focus{border-color:${C.red}!important;box-shad
                       ⚑ {allAlerts.filter(a=>a.severity==="critical").length} Critical Alert{allAlerts.filter(a=>a.severity==="critical").length>1?"s":""}
                     </button>
                   )}
-                  <Btn variant="outline" size="sm" onClick={()=>setTab("FleetMap")}>◉ Fleet Map</Btn>
-                  <Btn variant="ghost" size="sm" onClick={()=>setTab("Alerts")}>🔔 All Alerts</Btn>
+                  <Btn variant="outline" size="sm" onClick={()=>setTab("FleetMap")} style={{display:"flex",alignItems:"center",gap:5}}><Map size={12} strokeWidth={1.75}/> Fleet Map</Btn>
+                  <Btn variant="ghost" size="sm" onClick={()=>setTab("Alerts")} style={{display:"flex",alignItems:"center",gap:5}}><Bell size={12} strokeWidth={1.75}/> All Alerts</Btn>
                 </div>
               </div>
 
               {/* ── KPI ROW ── */}
               <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(170px,1fr))", gap:12, marginBottom:20 }}>
                 {[
-                  { label:"Total Assets",     value:assets.length,                                                   sub:`${assets.filter(a=>a.status==="Active").length} active`,       color:C.info,    icon:"▤" },
-                  { label:"Original Cost",    value:fmt(totalCost),                                                  sub:"Total acquisition value",                                       color:C.muted,   icon:"₽" },
-                  { label:"Net Book Value",   value:fmt(totalBook),                                                  sub:"After depreciation",                                            color:C.success, icon:"≋" },
-                  { label:"Total Write-Down", value:fmt(totalCost-totalBook),                                        sub:`${totalCost>0?(((totalCost-totalBook)/totalCost)*100).toFixed(1):0}% depreciated`, color:C.warn, icon:"↘" },
-                  { label:"Operating Cost",   value:fmt(rMC+rFC),                                                    sub:`${monthLabel(month)} · maint+fuel`,                             color:"#7c3aed", icon:"₽" },
-                  { label:"Open Alerts",      value:allAlerts.filter(a=>a.severity==="critical"||a.severity==="warning").length, sub:`${allAlerts.filter(a=>a.severity==="critical").length} critical`, color:allAlerts.filter(a=>a.severity==="critical").length>0?C.red:C.success, icon:"⚑" },
+                  { label:"Total Assets",     value:assets.length,                                                   sub:`${assets.filter(a=>a.status==="Active").length} active`,       color:C.info,    icon:Database },
+                  { label:"Original Cost",    value:fmt(totalCost),                                                  sub:"Total acquisition value",                                       color:C.muted,   icon:Receipt },
+                  { label:"Net Book Value",   value:fmt(totalBook),                                                  sub:"After depreciation",                                            color:C.success, icon:BarChart2 },
+                  { label:"Total Write-Down", value:fmt(totalCost-totalBook),                                        sub:`${totalCost>0?(((totalCost-totalBook)/totalCost)*100).toFixed(1):0}% depreciated`, color:C.warn, icon:TrendingDown },
+                  { label:"Operating Cost",   value:fmt(rMC+rFC),                                                    sub:`${monthLabel(month)} · maint+fuel`,                             color:"#7c3aed", icon:Wallet },
+                  { label:"Open Alerts",      value:allAlerts.filter(a=>a.severity==="critical"||a.severity==="warning").length, sub:`${allAlerts.filter(a=>a.severity==="critical").length} critical`, color:allAlerts.filter(a=>a.severity==="critical").length>0?C.red:C.success, icon:Bell },
                 ].map(k=>(
                   <KPI key={k.label} label={k.label} value={k.value} sub={k.sub} color={k.color} icon={k.icon}/>
                 ))}
@@ -7230,19 +7234,19 @@ input:focus,select:focus,textarea:focus{border-color:${C.red}!important;box-shad
                   label="Total Acquisition Cost"
                   value={fmt(totalCost)}
                   color={C.info}
-                  icon="₽"
+                  icon={Receipt}
                 />
                 <KPI
                   label="Total Depreciated"
                   value={fmt(totalCost - totalBook)}
                   color={C.warn}
-                  icon="↘"
+                  icon={TrendingDown}
                 />
                 <KPI
                   label="Net Book Value"
                   value={fmt(totalBook)}
                   color={C.success}
-                  icon="≋"
+                  icon={BarChart2}
                 />
                 <KPI
                   label="Portfolio Depreciation"
@@ -7255,7 +7259,7 @@ input:focus,select:focus,textarea:focus{border-color:${C.red}!important;box-shad
                       : "—"
                   }
                   color={C.red}
-                  icon="⊘"
+                  icon={Gauge}
                 />
               </div>
               {assets.length === 0 ? (
@@ -13430,7 +13434,7 @@ input:focus,select:focus,textarea:focus{border-color:${C.red}!important;box-shad
 
               {/* KPI STRIP */}
               <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(155px,1fr))",gap:12,marginBottom:20}}>
-                <KPI label="Total Contractors" value={contractors.length} color={C.info} icon="⊡" sub="on register"/>
+                <KPI label="Total Contractors" value={contractors.length} color={C.info} icon={HardHat} sub="on register"/>
                 <KPI
                   label="Fully Compliant"
                   value={contractors.filter(c=>getContractorCompliance(c).overallStatus==="compliant").length}
@@ -13663,7 +13667,7 @@ input:focus,select:focus,textarea:focus{border-color:${C.red}!important;box-shad
 
               {/* KPI STRIP */}
               <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(155px,1fr))",gap:12,marginBottom:20}}>
-                <KPI label="Total Checklists" value={preops.length} color={C.info} icon="☑" sub="all time"/>
+                <KPI label="Total Checklists" value={preops.length} color={C.info} icon={ClipboardCheck} sub="all time"/>
                 <KPI
                   label="Completed Today"
                   value={preops.filter(p=>p.date===today()).length}
