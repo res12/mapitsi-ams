@@ -9,7 +9,8 @@ import {
   Package, BadgeCheck, FileSpreadsheet, Upload, PieChart, Gauge,
   Bell, Receipt, ClipboardCheck, HardHat, ArrowLeftRight,
   ShoppingCart, Sparkles, Map, Brain, QrCode, Settings as SettingsIcon,
-  Hammer, Droplets, BarChart2, ScanLine, RefreshCw, DollarSign, Landmark
+  Hammer, Droplets, BarChart2, ScanLine, RefreshCw, DollarSign, Landmark,
+  ShieldAlert, Stethoscope, BadgePlus, CalendarCheck2, HeartPulse, IdCard, AlertCircle
 } from "lucide-react";
 
 const C = {
@@ -190,6 +191,7 @@ const MODULE_NAMES = {
   mcw_assetrevenue: "Asset Revenue",
   mcw_pos: "Purchase Orders",
   mcw_hirereqs: "Hire Requisitions",
+  mcw_opfitness: "Operator Fitness",
 };
 const COMPLIANCE_TYPES = [
   "Roadworthy Certificate",
@@ -248,6 +250,7 @@ const NAV = [
   { id: "FuelRecon",     ico: Scale,            tip: "Fuel reconciliation — compare card statements vs logged fills" },
   { id: "AuditLog",      ico: ScrollText,       tip: "Audit trail — full history of every change made in the system" },
   { id: "Leave",         ico: CalendarOff,      tip: "Leave and overtime — employee absence and extra hours tracking" },
+  { id: "OpFitness",     ico: Stethoscope,      tip: "Operator fitness — licence expiry, medicals, PDP and permit tracking with automated alerts" },
   { id: "Assignments",   ico: UserCheck,        tip: "Asset assignments — who is responsible for which asset" },
   { id: "Spares",        ico: Package,          tip: "Parts and spares inventory — stock levels, reorder alerts" },
   { id: "Warranties",    ico: BadgeCheck,       tip: "Warranty register — active warranties with expiry notifications" },
@@ -311,6 +314,7 @@ const NAV_LABELS = {
   AssetTags: "Asset Tags & Scanner",
   FleetMap: "Fleet Visual Map",
   AssetIntel: "Asset Intelligence",
+  OpFitness: "Operator Fitness",
   Settings: "Settings",
 };
 const ROLES = {
@@ -1222,7 +1226,7 @@ const NAV_SECTIONS = [
   { label: "Overview", ids: ["Dashboard"] },
   { label: "Assets", ids: ["Assets","Depreciation","Conditions","Warranties","Assignments","Disposals","Spares","Transfers","AssetTags"] },
   { label: "Operations", ids: ["Maintenance","JobCards","Schedules","Fuel","FuelRecon","Incidents","Hire","HireReqs","PreOp"] },
-  { label: "People", ids: ["Employees", "Timesheets", "Leave", "Projects"] },
+  { label: "People", ids: ["Employees", "Timesheets", "Leave", "OpFitness", "Projects"] },
   { label: "Finance", ids: ["Budgets", "Compliance", "Reports", "SARSReport", "ProjectCost", "PurchaseOrders"] },
   { label: "Intelligence", ids: ["Analytics", "AIAssist", "FleetMap", "AssetIntel", "AssetPL", "FuelRecon", "Utilisation", "Alerts", "AssetExpenses"] },
   { label: "System", ids: ["Suppliers","Contractors","AuditLog","Import","Settings"] },
@@ -3628,6 +3632,311 @@ function FleetMapTab({ assets, maint, fuel, incidents, conditions, transfers, pr
 }
 
 
+// ── OPERATOR FITNESS & LICENCE TRACKING ──────────────────────────────────────
+const CERT_TYPES = [
+  "Driver's Licence", "PDP (Professional Driving Permit)", "Operator Certificate",
+  "Forklift Licence", "Crane Operator Licence", "Hazmat Certificate",
+  "Medical Certificate of Fitness", "Pre-employment Medical", "Annual Medical",
+  "OHS Induction", "Site Access Permit", "First Aid Certificate", "Other"
+];
+const CERT_STATUSES = { valid: "#16a34a", expiring: "#d97706", expired: "#dc2626", missing: "#6b7280" };
+
+function certStatus(expiryDate, today, warnDays = 30) {
+  if (!expiryDate) return "missing";
+  const exp = new Date(expiryDate);
+  const now = new Date(today());
+  const diff = Math.ceil((exp - now) / (1000 * 60 * 60 * 24));
+  if (diff < 0) return "expired";
+  if (diff <= warnDays) return "expiring";
+  return "valid";
+}
+
+function daysUntil(dateStr, today) {
+  if (!dateStr) return null;
+  const diff = Math.ceil((new Date(dateStr) - new Date(today())) / (1000 * 60 * 60 * 24));
+  return diff;
+}
+
+function OpFitnessTab({ opFitness, setOpFitness, employees, assets, currentUser,
+  add, update, del, toast, can, fmt, today,
+  C, inp, Field, Row2, Btn, Card, Tbl, TR, Empty, KPI, Pill, PageTitle }) {
+
+  const blank = { employeeId: "", certType: "", issueDate: "", expiryDate: "", certNo: "", issuingBody: "", notes: "", linkedAssetId: "", status: "Active" };
+  const [form, setForm] = useState(blank);
+  const [showModal, setShowModal] = useState(false);
+  const [filterEmp, setFilterEmp] = useState("all");
+  const [filterType, setFilterType] = useState("all");
+  const [filterStatus, setFilterStatus] = useState("all");
+  const [view, setView] = useState("grid"); // grid | table
+
+  const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
+
+  const getEmp = id => employees.find(e => e.id === id);
+  const empName = id => { const e = getEmp(id); return e ? (e.name || `${e.firstName||""} ${e.lastName||""}`.trim()) : id; };
+
+  // Computed status for each record
+  const records = opFitness.map(r => ({ ...r, _status: certStatus(r.expiryDate, today, 30) }));
+
+  // Filter
+  const filtered = records.filter(r => {
+    if (filterEmp !== "all" && r.employeeId !== filterEmp) return false;
+    if (filterType !== "all" && r.certType !== filterType) return false;
+    if (filterStatus !== "all" && r._status !== filterStatus) return false;
+    return true;
+  });
+
+  // KPIs
+  const total = records.length;
+  const expired = records.filter(r => r._status === "expired").length;
+  const expiring = records.filter(r => r._status === "expiring").length;
+  const valid = records.filter(r => r._status === "valid").length;
+  const missing = records.filter(r => r._status === "missing").length;
+
+  // Employees with any expired/expiring cert
+  const alertEmps = [...new Set(records.filter(r => r._status === "expired" || r._status === "expiring").map(r => r.employeeId))];
+
+  const save = () => {
+    if (!form.employeeId || !form.certType) return toast("Employee and Certificate Type are required", "error");
+    if (form.id) {
+      update("mcw_opfitness", setOpFitness, opFitness, form.id, form);
+      toast("Record updated");
+    } else {
+      add("mcw_opfitness", setOpFitness, opFitness, form);
+      toast("Record added");
+    }
+    setShowModal(false);
+    setForm(blank);
+  };
+
+  const badgeColor = s => CERT_STATUSES[s] || C.muted;
+  const badgeLabel = { valid: "Valid", expiring: "Expiring Soon", expired: "Expired", missing: "No Expiry Set" };
+
+  // Group by employee for grid view
+  const empGroups = employees
+    .map(emp => {
+      const certs = filtered.filter(r => r.employeeId === emp.id);
+      if (!certs.length) return null;
+      const worst = certs.some(c => c._status === "expired") ? "expired"
+        : certs.some(c => c._status === "expiring") ? "expiring"
+        : certs.some(c => c._status === "missing") ? "missing" : "valid";
+      return { emp, certs, worst };
+    })
+    .filter(Boolean)
+    .sort((a, b) => {
+      const order = { expired: 0, expiring: 1, missing: 2, valid: 3 };
+      return order[a.worst] - order[b.worst];
+    });
+
+  return (
+    <div>
+      <PageTitle
+        title="OPERATOR FITNESS & LICENCES"
+        sub="Track driver licences, medicals, PDP, permits and certificates for every operator"
+        action={can(currentUser, "canAdd") && (
+          <Btn onClick={() => { setForm(blank); setShowModal(true); }}><BadgePlus size={13} strokeWidth={1.75} style={{ marginRight: 5 }} />Add Certificate</Btn>
+        )}
+      />
+
+      {/* KPI Row */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 12, marginBottom: 22 }}>
+        <KPI label="Total Records" value={total} icon={IdCard} color={C.info} sub="all certificates" />
+        <KPI label="Valid" value={valid} icon={CalendarCheck2} color="#16a34a" sub="in date" />
+        <KPI label="Expiring Soon" value={expiring} icon={AlertCircle} color="#d97706" sub="within 30 days" />
+        <KPI label="Expired" value={expired} icon={ShieldAlert} color={C.red} sub="action required" />
+        <KPI label="Operators at Risk" value={alertEmps.length} icon={HeartPulse} color={expired > 0 ? C.red : "#d97706"} sub="have alerts" />
+      </div>
+
+      {/* Expired banner */}
+      {expired > 0 && (
+        <div style={{ background: "#FEF2F2", border: `1px solid ${C.redBorder}`, borderRadius: 10, padding: "12px 18px", marginBottom: 18, display: "flex", alignItems: "flex-start", gap: 12 }}>
+          <ShieldAlert size={18} color={C.red} style={{ marginTop: 1, flexShrink: 0 }} />
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 13, color: C.red }}>Action Required — {expired} Expired Certificate{expired !== 1 ? "s" : ""}</div>
+            <div style={{ fontSize: 11.5, color: "#991b1b", marginTop: 3, lineHeight: 1.5 }}>
+              {records.filter(r => r._status === "expired").slice(0, 5).map(r => `${empName(r.employeeId)} — ${r.certType}`).join(" · ")}
+              {expired > 5 ? ` · +${expired - 5} more` : ""}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Filters & view toggle */}
+      <div style={{ display: "flex", gap: 10, marginBottom: 18, flexWrap: "wrap", alignItems: "center" }}>
+        <select value={filterEmp} onChange={e => setFilterEmp(e.target.value)} style={{ ...inp, width: 180 }}>
+          <option value="all">All Employees</option>
+          {employees.map(e => <option key={e.id} value={e.id}>{e.name || `${e.firstName||""} ${e.lastName||""}`.trim()}</option>)}
+        </select>
+        <select value={filterType} onChange={e => setFilterType(e.target.value)} style={{ ...inp, width: 200 }}>
+          <option value="all">All Cert Types</option>
+          {CERT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+        </select>
+        <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} style={{ ...inp, width: 160 }}>
+          <option value="all">All Statuses</option>
+          <option value="valid">Valid</option>
+          <option value="expiring">Expiring Soon</option>
+          <option value="expired">Expired</option>
+          <option value="missing">No Expiry</option>
+        </select>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+          <Btn variant={view === "grid" ? "primary" : "outline"} size="sm" onClick={() => setView("grid")}>Cards</Btn>
+          <Btn variant={view === "table" ? "primary" : "outline"} size="sm" onClick={() => setView("table")}>Table</Btn>
+        </div>
+      </div>
+
+      {filtered.length === 0 && <Empty icon={Stethoscope} title="No records found" desc="Add operator certificates and medical fitness records to track compliance." />}
+
+      {/* GRID VIEW */}
+      {view === "grid" && empGroups.length > 0 && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(300px,1fr))", gap: 16 }}>
+          {empGroups.map(({ emp, certs, worst }) => (
+            <Card key={emp.id} style={{ borderTop: `3px solid ${badgeColor(worst)}` }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 13, color: C.text }}>{empName(emp.id)}</div>
+                  <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>{emp.role || emp.jobTitle || "Operator"}</div>
+                </div>
+                <Pill color={badgeColor(worst)} label={worst === "expired" ? `${certs.filter(c=>c._status==="expired").length} Expired` : worst === "expiring" ? "Expiring" : "All Good"} />
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                {certs.map(cert => {
+                  const days = daysUntil(cert.expiryDate, today);
+                  return (
+                    <div key={cert.id} style={{ background: C.surface, borderRadius: 7, padding: "8px 11px", border: `1px solid ${cert._status !== "valid" ? badgeColor(cert._status) + "55" : C.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 11.5, fontWeight: 600, color: C.text }}>{cert.certType}</div>
+                        {cert.certNo && <div style={{ fontSize: 10, color: C.muted }}>No: {cert.certNo}</div>}
+                        {cert.expiryDate && (
+                          <div style={{ fontSize: 10, color: cert._status === "expired" ? C.red : cert._status === "expiring" ? "#d97706" : C.muted, marginTop: 2 }}>
+                            {cert._status === "expired" ? `Expired ${Math.abs(days)} days ago` : cert._status === "expiring" ? `Expires in ${days} days` : `Expires ${fmt(cert.expiryDate)}`}
+                          </div>
+                        )}
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <span style={{ width: 8, height: 8, borderRadius: "50%", background: badgeColor(cert._status), display: "inline-block", flexShrink: 0 }} />
+                        {can(currentUser, "canEdit") && (
+                          <button onClick={() => { setForm({ ...cert }); setShowModal(true); }} style={{ background: "none", border: "none", cursor: "pointer", color: C.muted, fontSize: 13, padding: "0 2px" }} title="Edit">✎</button>
+                        )}
+                        {can(currentUser, "canDelete") && (
+                          <button onClick={() => del("mcw_opfitness", setOpFitness, opFitness, cert.id)} style={{ background: "none", border: "none", cursor: "pointer", color: C.muted, fontSize: 14, padding: "0 2px" }} title="Delete">×</button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              {can(currentUser, "canAdd") && (
+                <button onClick={() => { setForm({ ...blank, employeeId: emp.id }); setShowModal(true); }} style={{ marginTop: 10, width: "100%", background: "none", border: `1px dashed ${C.border}`, borderRadius: 7, padding: "6px 0", fontSize: 11, color: C.muted, cursor: "pointer" }}>
+                  + Add Certificate
+                </button>
+              )}
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {/* TABLE VIEW */}
+      {view === "table" && filtered.length > 0 && (
+        <Tbl heads={["Employee", "Certificate / Licence", "Cert No.", "Issued", "Expires", "Status", ""]}>
+          {filtered.map(r => {
+            const days = daysUntil(r.expiryDate, today);
+            return (
+              <TR key={r.id}>
+                <td style={{ padding: "10px 12px", fontSize: 12, fontWeight: 600, color: C.text }}>{empName(r.employeeId)}</td>
+                <td style={{ padding: "10px 12px", fontSize: 12, color: C.text }}>{r.certType}</td>
+                <td style={{ padding: "10px 12px", fontSize: 11, color: C.muted }}>{r.certNo || "—"}</td>
+                <td style={{ padding: "10px 12px", fontSize: 11, color: C.muted }}>{r.issueDate ? fmt(r.issueDate) : "—"}</td>
+                <td style={{ padding: "10px 12px", fontSize: 11, color: r._status === "expired" ? C.red : r._status === "expiring" ? "#d97706" : C.muted }}>
+                  {r.expiryDate ? (
+                    <>
+                      {fmt(r.expiryDate)}
+                      {days !== null && <span style={{ fontSize: 10, marginLeft: 6 }}>({days < 0 ? `${Math.abs(days)}d ago` : `${days}d`})</span>}
+                    </>
+                  ) : "—"}
+                </td>
+                <td style={{ padding: "10px 12px" }}>
+                  <Pill color={badgeColor(r._status)} label={badgeLabel[r._status]} />
+                </td>
+                <td style={{ padding: "10px 12px", whiteSpace: "nowrap" }}>
+                  {can(currentUser, "canEdit") && (
+                    <button onClick={() => { setForm({ ...r }); setShowModal(true); }} style={{ background: "none", border: "none", cursor: "pointer", color: C.muted, fontSize: 13, marginRight: 8 }} title="Edit">✎</button>
+                  )}
+                  {can(currentUser, "canDelete") && (
+                    <button onClick={() => del("mcw_opfitness", setOpFitness, opFitness, r.id)} style={{ background: "none", border: "none", cursor: "pointer", color: C.muted, fontSize: 14 }} title="Delete">×</button>
+                  )}
+                </td>
+              </TR>
+            );
+          })}
+        </Tbl>
+      )}
+
+      {/* ADD / EDIT MODAL */}
+      {showModal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ background: C.white, borderRadius: 14, padding: 28, width: "min(560px,96vw)", maxHeight: "90vh", overflowY: "auto", boxShadow: "0 24px 60px rgba(0,0,0,0.35)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+              <div style={{ fontWeight: 800, fontSize: 15, color: C.text }}>{form.id ? "Edit Certificate" : "Add Certificate / Licence"}</div>
+              <button onClick={() => { setShowModal(false); setForm(blank); }} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 22, color: C.muted, lineHeight: 1 }}>×</button>
+            </div>
+            <Row2>
+              <Field label="Employee" required>
+                <select value={form.employeeId} onChange={e => set("employeeId", e.target.value)} style={inp}>
+                  <option value="">— Select Employee —</option>
+                  {employees.map(e => <option key={e.id} value={e.id}>{e.name || `${e.firstName||""} ${e.lastName||""}`.trim()}</option>)}
+                </select>
+              </Field>
+              <Field label="Certificate / Licence Type" required>
+                <select value={form.certType} onChange={e => set("certType", e.target.value)} style={inp}>
+                  <option value="">— Select Type —</option>
+                  {CERT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </Field>
+            </Row2>
+            <Row2>
+              <Field label="Certificate / Licence No.">
+                <input value={form.certNo} onChange={e => set("certNo", e.target.value)} placeholder="e.g. DL-2024-001" style={inp} />
+              </Field>
+              <Field label="Issuing Body / Authority">
+                <input value={form.issuingBody} onChange={e => set("issuingBody", e.target.value)} placeholder="e.g. Department of Transport" style={inp} />
+              </Field>
+            </Row2>
+            <Row2>
+              <Field label="Issue Date">
+                <input type="date" value={form.issueDate} onChange={e => set("issueDate", e.target.value)} style={inp} />
+              </Field>
+              <Field label="Expiry Date">
+                <input type="date" value={form.expiryDate} onChange={e => set("expiryDate", e.target.value)} style={inp} />
+              </Field>
+            </Row2>
+            <Row2>
+              <Field label="Linked Asset (optional)">
+                <select value={form.linkedAssetId} onChange={e => set("linkedAssetId", e.target.value)} style={inp}>
+                  <option value="">— None —</option>
+                  {assets.map(a => <option key={a.id} value={a.id}>{a.name || a.fleet || a.id}</option>)}
+                </select>
+              </Field>
+              <Field label="Status">
+                <select value={form.status} onChange={e => set("status", e.target.value)} style={inp}>
+                  <option value="Active">Active</option>
+                  <option value="Suspended">Suspended</option>
+                  <option value="Revoked">Revoked</option>
+                </select>
+              </Field>
+            </Row2>
+            <Field label="Notes">
+              <textarea value={form.notes} onChange={e => set("notes", e.target.value)} rows={2} placeholder="Any relevant notes..." style={{ ...inp, height: "auto" }} />
+            </Field>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 20 }}>
+              <Btn variant="outline" onClick={() => { setShowModal(false); setForm(blank); }}>Cancel</Btn>
+              <Btn onClick={save}>{form.id ? "Save Changes" : "Add Record"}</Btn>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── PLANT P&L ────────────────────────────────────────────────────────────────
 const REV_TYPES = ["Hire Out", "Internal Project Billing", "Revenue Share", "Standby Fee", "Salvage / Scrap", "Insurance Claim", "Other"];
 
@@ -4554,6 +4863,7 @@ export default function App() {
       ["pos",           setPurchaseOrders],
       ["hirereqs",      setHireReqs],
       ["assetrevenue",  setAssetRevenue],
+      ["opfitness",     setOpFitness],
     ];
     const unsubscribers = realTimeCollections.map(([name, setter]) => {
       return onSnapshot(collection(db, name), (snapshot) => {
@@ -4620,6 +4930,7 @@ export default function App() {
       ["pos",           setPurchaseOrders],
       ["hirereqs",      setHireReqs],
       ["assetrevenue",  setAssetRevenue],
+      ["opfitness",     setOpFitness],
     ];
 
     for (const [name, setter] of collections) {
@@ -4885,6 +5196,7 @@ export default function App() {
   const [transF, setTransF] = useState(dTrans);
   const [jobCards, setJobCards] = useState([]);
   const [assetRevenue, setAssetRevenue] = useState([]);
+  const [opFitness, setOpFitness] = useState([]);
   const [purchaseOrders, setPurchaseOrders] = useState([]);
   const [hireReqs, setHireReqs] = useState([]);
   const dCon = {
@@ -15075,6 +15387,20 @@ input:focus,select:focus,textarea:focus{border-color:${C.red}!important;box-shad
               assetRevenue={assetRevenue} setAssetRevenue={setAssetRevenue}
               currentUser={currentUser} depreciate={depreciate}
               add={add} update={update} del={del} persist={persist}
+              toast={toast} can={can} fmt={fmt} today={today}
+              C={C} inp={inp} Field={Field} Row2={Row2}
+              Btn={Btn} Card={Card} Tbl={Tbl} TR={TR} Empty={Empty}
+              KPI={KPI} Pill={Pill} PageTitle={PageTitle}
+            />
+          )}
+
+          {/* OPERATOR FITNESS */}
+          {tab === "OpFitness" && (
+            <OpFitnessTab
+              opFitness={opFitness} setOpFitness={setOpFitness}
+              employees={employees} assets={assets}
+              currentUser={currentUser}
+              add={add} update={update} del={del}
               toast={toast} can={can} fmt={fmt} today={today}
               C={C} inp={inp} Field={Field} Row2={Row2}
               Btn={Btn} Card={Card} Tbl={Tbl} TR={TR} Empty={Empty}
