@@ -4033,37 +4033,59 @@ ${JSON.stringify(assetData)}`}],
 }
 
 // ── TOOLTIP SYSTEM ────────────────────────────────────────────────────────────
-// General-purpose hover tooltip — wraps any element
-function Tooltip({ title, desc, children, placement = "top", maxWidth = 210 }) {
+// Uses position:fixed + getBoundingClientRect so it escapes overflow:hidden
+// parents (sidebar, cards, modals — anything).
+function Tooltip({ title, desc, children, placement = "top", maxWidth = 220 }) {
   const [vis, setVis] = useState(false);
+  const [coords, setCoords] = useState({ top: 0, left: 0, transform: "" });
+  const wrapRef = useRef(null);
   const timer = useRef(null);
-  const show = () => { timer.current = setTimeout(() => setVis(true), 260); };
-  const hide = () => { clearTimeout(timer.current); setVis(false); };
-  const base = {
-    position: "absolute", zIndex: 99999,
-    background: "#0D0F14", color: "white",
-    borderRadius: 8, padding: "9px 13px",
-    fontSize: 11.5, fontFamily: "'DM Sans',sans-serif",
-    lineHeight: 1.45, maxWidth, whiteSpace: "normal",
-    pointerEvents: "none",
-    boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
-    border: "1px solid rgba(255,255,255,0.09)",
-    animation: "tipIn 0.12s ease",
+
+  const calcPos = () => {
+    if (!wrapRef.current) return;
+    const r = wrapRef.current.getBoundingClientRect();
+    const gap = 10;
+    if (placement === "right") {
+      setCoords({ top: r.top + r.height / 2, left: r.right + gap, transform: "translateY(-50%)" });
+    } else if (placement === "left") {
+      setCoords({ top: r.top + r.height / 2, left: r.left - gap, transform: "translate(-100%,-50%)" });
+    } else if (placement === "bottom") {
+      setCoords({ top: r.bottom + gap, left: r.left + r.width / 2, transform: "translateX(-50%)" });
+    } else {
+      // top (default)
+      setCoords({ top: r.top - gap, left: r.left + r.width / 2, transform: "translate(-50%,-100%)" });
+    }
   };
-  const pos = {
-    top:    { bottom: "calc(100% + 9px)", left: "50%", transform: "translateX(-50%)" },
-    bottom: { top:    "calc(100% + 9px)", left: "50%", transform: "translateX(-50%)" },
-    right:  { left:   "calc(100% + 9px)", top:  "50%", transform: "translateY(-50%)" },
-    left:   { right:  "calc(100% + 9px)", top:  "50%", transform: "translateY(-50%)" },
-  }[placement];
+
+  const show = () => { calcPos(); timer.current = setTimeout(() => setVis(true), 260); };
+  const hide = () => { clearTimeout(timer.current); setVis(false); };
+
   return (
-    <span style={{ position: "relative", display: "inline-flex" }}
+    <span ref={wrapRef} style={{ position: "relative", display: "inline-flex" }}
       onMouseEnter={show} onMouseLeave={hide} onFocus={show} onBlur={hide}>
       {children}
       {vis && (
-        <div style={{ ...base, ...pos }}>
+        <div style={{
+          position: "fixed",
+          zIndex: 999999,
+          top: coords.top,
+          left: coords.left,
+          transform: coords.transform,
+          background: "#0D0F14",
+          color: "white",
+          borderRadius: 8,
+          padding: "9px 14px",
+          fontSize: 11.5,
+          fontFamily: "'DM Sans',sans-serif",
+          lineHeight: 1.5,
+          maxWidth,
+          whiteSpace: "normal",
+          pointerEvents: "none",
+          boxShadow: "0 8px 32px rgba(0,0,0,0.55)",
+          border: "1px solid rgba(255,255,255,0.1)",
+        }}>
           {title && <div style={{ fontWeight: 700, fontSize: 12, marginBottom: desc ? 4 : 0 }}>{title}</div>}
-          {desc  && <div style={{ opacity: 0.65, fontSize: 10.5 }}>{desc}</div>}
+          {desc  && <div style={{ opacity: 0.68, fontSize: 10.5, lineHeight: 1.45 }}>{desc}</div>}
         </div>
       )}
     </span>
