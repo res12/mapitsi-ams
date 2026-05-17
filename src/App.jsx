@@ -4035,7 +4035,7 @@ ${JSON.stringify(assetData)}`}],
 // ── TOOLTIP SYSTEM ────────────────────────────────────────────────────────────
 // Uses position:fixed + getBoundingClientRect so it escapes overflow:hidden
 // parents (sidebar, cards, modals — anything).
-function Tooltip({ title, desc, children, placement = "top", maxWidth = 220 }) {
+function Tooltip({ title, desc, children, placement = "top", maxWidth = 220, block = false }) {
   const [vis, setVis] = useState(false);
   const [coords, setCoords] = useState({ top: 0, left: 0, transform: "" });
   const wrapRef = useRef(null);
@@ -4061,7 +4061,7 @@ function Tooltip({ title, desc, children, placement = "top", maxWidth = 220 }) {
   const hide = () => { clearTimeout(timer.current); setVis(false); };
 
   return (
-    <span ref={wrapRef} style={{ position: "relative", display: "inline-flex" }}
+    <span ref={wrapRef} style={{ position: "relative", display: block ? "block" : "inline-flex", width: block ? "100%" : undefined }}
       onMouseEnter={show} onMouseLeave={hide} onFocus={show} onBlur={hide}>
       {children}
       {vis && (
@@ -6576,7 +6576,7 @@ input:focus,select:focus,textarea:focus{border-color:${C.red}!important;box-shad
                     </button>
                   );
                   return side ? btn : (
-                    <Tooltip key={n.id} title={NAV_LABELS[n.id]} desc={n.tip} placement="right">
+                    <Tooltip key={n.id} title={NAV_LABELS[n.id]} desc={n.tip} placement="right" block>
                       {btn}
                     </Tooltip>
                   );
