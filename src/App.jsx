@@ -12,7 +12,8 @@ import {
   Hammer, Droplets, BarChart2, ScanLine, RefreshCw, DollarSign, Landmark,
   ShieldAlert, Stethoscope, BadgePlus, CalendarCheck2, HeartPulse, IdCard, AlertCircle,
   ShieldPlus, Siren, Ambulance, BriefcaseMedical, Banknote, FilePlus2, FileWarning, Bandage,
-  AlertOctagon, GraduationCap, BookOpen, Users2, NotebookPen, ListChecks, ShieldX, BookCheck
+  AlertOctagon, GraduationCap, BookOpen, Users2, NotebookPen, ListChecks, ShieldX, BookCheck,
+  Shirt, FileSignature, UserCog, ClipboardSignature, Glasses, Tags
 } from "lucide-react";
 
 const C = {
@@ -198,6 +199,8 @@ const MODULE_NAMES = {
   mcw_coid: "COID / IOD Register",
   mcw_riskassess: "Risk Assessment Register",
   mcw_training: "Training & Toolbox Talks",
+  mcw_ppe: "PPE Issue Register",
+  mcw_hsappt: "H&S Appointments",
 };
 const COMPLIANCE_TYPES = [
   "Roadworthy Certificate",
@@ -249,6 +252,8 @@ const NAV = [
   { id: "Incidents",     ico: AlertTriangle,    tip: "Incident log — breakdowns, accidents, near-misses and resolutions" },
   { id: "COID",          ico: Siren,            tip: "COID / IOD Register — COIDA-compliant injury on duty register, W.Cl.2 reporting, days lost and claim tracking" },
   { id: "RiskAssess",    ico: AlertOctagon,     tip: "Risk Assessment Register — OHSA Reg 5 documented hazards, risk ratings, control measures and review dates per activity" },
+  { id: "PPERegister",   ico: HardHat,          tip: "PPE Issue Register — per-employee PPE issue log with sign-off. First thing a DoL inspector checks on site." },
+  { id: "HSAppointments",ico: ClipboardSignature,tip: "H&S Appointments — OHSA Sec 16.2/17/18 written appointments for Safety Officer, First Aider, Fire Fighter and Emergency Coordinator" },
   { id: "Suppliers",     ico: Building2,        tip: "Supplier register — service providers, parts suppliers and contractors" },
   { id: "Budgets",       ico: Wallet,           tip: "Budget management — department allocations and spend tracking" },
   { id: "Insurance",     ico: ShieldPlus,       tip: "Insurance register — per-asset policies, plant all-risk, renewal alerts and claims log" },
@@ -329,6 +334,8 @@ const NAV_LABELS = {
   COID: "COID / IOD Register",
   RiskAssess: "Risk Assessment Register",
   Training: "Training & Toolbox Talks",
+  PPERegister: "PPE Issue Register",
+  HSAppointments: "H&S Appointments",
   Settings: "Settings",
 };
 const ROLES = {
@@ -1242,7 +1249,7 @@ const DEFAULT_SITES = [
 const NAV_SECTIONS = [
   { label: "Overview", ids: ["Dashboard"] },
   { label: "Assets", ids: ["Assets","Depreciation","Conditions","Warranties","Assignments","Disposals","Spares","Transfers","AssetTags"] },
-  { label: "Operations", ids: ["Maintenance","JobCards","Schedules","Fuel","FuelRecon","Incidents","COID","RiskAssess","Hire","HireReqs","PreOp"] },
+  { label: "Operations", ids: ["Maintenance","JobCards","Schedules","Fuel","FuelRecon","Incidents","COID","RiskAssess","PPERegister","HSAppointments","Hire","HireReqs","PreOp"] },
   { label: "People", ids: ["Employees", "Timesheets", "Leave", "OpFitness", "Training", "Projects"] },
   { label: "Finance", ids: ["Budgets", "Insurance", "Compliance", "Reports", "SARSReport", "ProjectCost", "PurchaseOrders"] },
   { label: "Intelligence", ids: ["Analytics", "AIAssist", "FleetMap", "AssetIntel", "AssetPL", "FuelRecon", "Utilisation", "Alerts", "AssetExpenses"] },
@@ -3648,6 +3655,454 @@ function FleetMapTab({ assets, maint, fuel, incidents, conditions, transfers, pr
   );
 }
 
+
+// ── PPE ISSUE REGISTER ───────────────────────────────────────────────────────
+const PPE_TYPES = [
+  "Safety Helmet (Hard Hat)", "Safety Boots (Steel-toe)", "High-Visibility Vest",
+  "Safety Glasses / Goggles", "Ear Protection (Plugs / Muffs)", "Dust Mask / Respirator",
+  "Safety Gloves (General)", "Cut-Resistant Gloves", "Chemical-Resistant Gloves",
+  "Full-Body Harness (Fall Arrest)", "Safety Overalls / Coveralls", "Waterproof Jacket / Pants",
+  "Face Shield", "Knee Pads", "Sun Protection Gear", "First Aid Kit (Personal)", "Other"
+];
+const PPE_CONDITIONS = ["New", "Good", "Fair", "Worn — Replace Soon", "Damaged — Replace Immediately"];
+
+function PPERegisterTab({ ppeRecords, setPpeRecords, employees, currentUser,
+  add, update, del, toast, can, fmt, today,
+  C, inp, Field, Row2, Btn, Card, Tbl, TR, Empty, KPI, Pill, PageTitle }) {
+
+  const blank = { employeeId: "", ppeType: "", size: "", qty: "1", issueDate: "", condition: "New", replacementDue: "", signedOff: false, signedDate: "", returnDate: "", notes: "" };
+  const [form, setForm] = useState(blank);
+  const [showModal, setShowModal] = useState(false);
+  const [filterEmp, setFilterEmp] = useState("all");
+  const [filterPPE, setFilterPPE] = useState("all");
+  const [view, setView] = useState("table");
+
+  const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
+  const empName = id => { const e = employees.find(x => x.id === id); return e ? (e.name || `${e.firstName||""} ${e.lastName||""}`.trim()) : id; };
+
+  const filtered = ppeRecords.filter(r => {
+    if (filterEmp !== "all" && r.employeeId !== filterEmp) return false;
+    if (filterPPE !== "all" && r.ppeType !== filterPPE) return false;
+    return true;
+  });
+
+  const unsigned = ppeRecords.filter(r => !r.signedOff && !r.returnDate);
+  const replaceDue = ppeRecords.filter(r => !r.returnDate && (r.condition === "Damaged — Replace Immediately" || (r.replacementDue && r.replacementDue <= today())));
+  const active = ppeRecords.filter(r => !r.returnDate);
+
+  // Employees missing mandatory PPE (hard hat, boots, hi-vis, gloves minimum)
+  const mandatoryPPE = ["Safety Helmet (Hard Hat)", "Safety Boots (Steel-toe)", "High-Visibility Vest"];
+  const empsMissingMandatory = employees.filter(emp => {
+    const empPPE = ppeRecords.filter(r => r.employeeId === emp.id && !r.returnDate).map(r => r.ppeType);
+    return mandatoryPPE.some(m => !empPPE.includes(m));
+  });
+
+  const save = () => {
+    if (!form.employeeId || !form.ppeType) return toast("Employee and PPE type are required", "error");
+    if (form.id) { update("mcw_ppe", setPpeRecords, ppeRecords, form.id, form); toast("PPE record updated"); }
+    else { add("mcw_ppe", setPpeRecords, ppeRecords, form); toast("PPE issued"); }
+    setShowModal(false); setForm(blank);
+  };
+
+  const condColor = c => ({
+    "New": "#16a34a", "Good": "#16a34a", "Fair": "#d97706",
+    "Worn — Replace Soon": "#d97706", "Damaged — Replace Immediately": "#dc2626"
+  }[c] || C.muted);
+
+  return (
+    <div>
+      <PageTitle
+        title="PPE ISSUE REGISTER"
+        sub="Personal Protective Equipment issue log — per employee, per item, with sign-off. Required for every DoL site inspection."
+        action={can(currentUser, "canAdd") && (
+          <Btn onClick={() => { setForm(blank); setShowModal(true); }}><HardHat size={13} strokeWidth={1.75} style={{ marginRight: 5 }} />Issue PPE</Btn>
+        )}
+      />
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(145px,1fr))", gap: 12, marginBottom: 22 }}>
+        <KPI label="Active Issues" value={active.length} icon={HardHat} color={C.info} sub="currently issued" />
+        <KPI label="Not Signed Off" value={unsigned.length} icon={FileSignature} color={unsigned.length > 0 ? C.red : C.muted} sub="signature required" />
+        <KPI label="Replace Required" value={replaceDue.length} icon={AlertCircle} color={replaceDue.length > 0 ? C.red : C.muted} sub="damaged / overdue" />
+        <KPI label="Missing Mandatory" value={empsMissingMandatory.length} icon={ShieldAlert} color={empsMissingMandatory.length > 0 ? C.red : "#16a34a"} sub="hard hat/boots/hi-vis" />
+      </div>
+
+      {(unsigned.length > 0 || empsMissingMandatory.length > 0) && (
+        <div style={{ background: "#FEF2F2", border: `1px solid ${C.redBorder}`, borderRadius: 10, padding: "12px 18px", marginBottom: 18 }}>
+          <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+            <ShieldAlert size={18} color={C.red} style={{ marginTop: 1, flexShrink: 0 }} />
+            <div>
+              {unsigned.length > 0 && <div style={{ fontWeight: 700, fontSize: 13, color: C.red, marginBottom: 4 }}>{unsigned.length} PPE issue{unsigned.length !== 1 ? "s" : ""} not signed off — get acknowledgment signatures immediately</div>}
+              {empsMissingMandatory.length > 0 && <div style={{ fontSize: 11.5, color: "#991b1b", lineHeight: 1.5 }}>
+                <strong>Missing mandatory PPE:</strong> {empsMissingMandatory.slice(0, 5).map(e => e.name || `${e.firstName||""} ${e.lastName||""}`.trim()).join(", ")}{empsMissingMandatory.length > 5 ? ` +${empsMissingMandatory.length - 5} more` : ""}
+              </div>}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div style={{ display: "flex", gap: 10, marginBottom: 18, flexWrap: "wrap", alignItems: "center" }}>
+        <select value={filterEmp} onChange={e => setFilterEmp(e.target.value)} style={{ ...inp, width: 200 }}>
+          <option value="all">All Employees</option>
+          {employees.map(e => <option key={e.id} value={e.id}>{e.name || `${e.firstName||""} ${e.lastName||""}`.trim()}</option>)}
+        </select>
+        <select value={filterPPE} onChange={e => setFilterPPE(e.target.value)} style={{ ...inp, width: 220 }}>
+          <option value="all">All PPE Types</option>
+          {PPE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+        </select>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+          <Btn variant={view === "table" ? "primary" : "outline"} size="sm" onClick={() => setView("table")}>Table</Btn>
+          <Btn variant={view === "byEmployee" ? "primary" : "outline"} size="sm" onClick={() => setView("byEmployee")}>By Employee</Btn>
+        </div>
+      </div>
+
+      {filtered.length === 0 && <Empty icon={HardHat} title="No PPE issues recorded" desc="Issue PPE to employees and capture sign-off — mandatory for Department of Labour inspections." />}
+
+      {view === "table" && filtered.length > 0 && (
+        <Tbl heads={["Employee", "PPE Item", "Qty", "Issue Date", "Condition", "Replacement Due", "Signed Off", "Returned", ""]}>
+          {filtered.map(r => (
+            <TR key={r.id}>
+              <td style={{ padding: "10px 12px", fontSize: 12, fontWeight: 600, color: C.text }}>{empName(r.employeeId)}</td>
+              <td style={{ padding: "10px 12px", fontSize: 12, color: C.text }}>{r.ppeType}{r.size ? ` (${r.size})` : ""}</td>
+              <td style={{ padding: "10px 12px", fontSize: 11, color: C.muted, textAlign: "center" }}>{r.qty || 1}</td>
+              <td style={{ padding: "10px 12px", fontSize: 11, color: C.muted }}>{r.issueDate ? fmt(r.issueDate) : "—"}</td>
+              <td style={{ padding: "10px 12px" }}>
+                <span style={{ fontSize: 11, fontWeight: 600, color: condColor(r.condition) }}>{r.condition || "—"}</span>
+              </td>
+              <td style={{ padding: "10px 12px", fontSize: 11, color: r.replacementDue && r.replacementDue <= today() ? C.red : C.muted }}>
+                {r.replacementDue ? fmt(r.replacementDue) : "—"}
+              </td>
+              <td style={{ padding: "10px 12px", textAlign: "center" }}>
+                {r.signedOff
+                  ? <span style={{ color: "#16a34a", fontSize: 12, fontWeight: 700 }}>✓ {r.signedDate ? fmt(r.signedDate) : ""}</span>
+                  : <span style={{ color: C.red, fontSize: 11, fontWeight: 700 }}>⚠ Unsigned</span>}
+              </td>
+              <td style={{ padding: "10px 12px", fontSize: 11, color: C.muted }}>{r.returnDate ? fmt(r.returnDate) : "Active"}</td>
+              <td style={{ padding: "10px 12px", whiteSpace: "nowrap" }}>
+                {can(currentUser, "canEdit") && <button onClick={() => { setForm({ ...r }); setShowModal(true); }} style={{ background: "none", border: "none", cursor: "pointer", color: C.muted, fontSize: 13, marginRight: 8 }}>✎</button>}
+                {can(currentUser, "canDelete") && <button onClick={() => del("mcw_ppe", setPpeRecords, ppeRecords, r.id)} style={{ background: "none", border: "none", cursor: "pointer", color: C.muted, fontSize: 14 }}>×</button>}
+              </td>
+            </TR>
+          ))}
+        </Tbl>
+      )}
+
+      {view === "byEmployee" && filtered.length > 0 && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(300px,1fr))", gap: 14 }}>
+          {[...new Set(filtered.map(r => r.employeeId))].map(empId => {
+            const empItems = filtered.filter(r => r.employeeId === empId && !r.returnDate);
+            if (!empItems.length) return null;
+            const hasUnsigned = empItems.some(r => !r.signedOff);
+            const hasDamaged = empItems.some(r => r.condition === "Damaged — Replace Immediately");
+            const missingMandatory = mandatoryPPE.filter(m => !empItems.map(r => r.ppeType).includes(m));
+            return (
+              <Card key={empId} style={{ borderTop: `3px solid ${hasDamaged || hasUnsigned || missingMandatory.length ? C.red : "#16a34a"}` }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
+                  <div style={{ fontWeight: 700, fontSize: 13, color: C.text }}>{empName(empId)}</div>
+                  <Pill label={hasDamaged || hasUnsigned || missingMandatory.length > 0 ? "Action Required" : "Compliant"} color={hasDamaged || hasUnsigned || missingMandatory.length > 0 ? "red" : "green"} />
+                </div>
+                {missingMandatory.length > 0 && (
+                  <div style={{ fontSize: 10.5, color: C.red, marginBottom: 8, background: "#FEF2F2", borderRadius: 6, padding: "5px 9px" }}>
+                    Missing: {missingMandatory.join(", ")}
+                  </div>
+                )}
+                <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                  {empItems.map(item => (
+                    <div key={item.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11, padding: "5px 0", borderBottom: `1px solid ${C.borderSubtle}` }}>
+                      <span style={{ color: C.text }}>{item.ppeType}</span>
+                      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                        <span style={{ color: condColor(item.condition), fontSize: 10, fontWeight: 600 }}>{item.condition === "New" || item.condition === "Good" ? "✓" : "⚠"}</span>
+                        {!item.signedOff && <span style={{ color: C.red, fontSize: 10, fontWeight: 700 }}>UNSIGNED</span>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+            );
+          }).filter(Boolean)}
+        </div>
+      )}
+
+      {showModal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ background: C.white, borderRadius: 14, padding: 28, width: "min(540px,96vw)", maxHeight: "90vh", overflowY: "auto", boxShadow: "0 24px 60px rgba(0,0,0,0.35)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+              <div style={{ fontWeight: 800, fontSize: 15, color: C.text }}>{form.id ? "Edit PPE Record" : "Issue PPE to Employee"}</div>
+              <button onClick={() => { setShowModal(false); setForm(blank); }} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 22, color: C.muted }}>×</button>
+            </div>
+            <Row2>
+              <Field label="Employee" required>
+                <select value={form.employeeId} onChange={e => set("employeeId", e.target.value)} style={inp}>
+                  <option value="">— Select Employee —</option>
+                  {employees.map(e => <option key={e.id} value={e.id}>{e.name || `${e.firstName||""} ${e.lastName||""}`.trim()}</option>)}
+                </select>
+              </Field>
+              <Field label="PPE Item" required>
+                <select value={form.ppeType} onChange={e => set("ppeType", e.target.value)} style={inp}>
+                  <option value="">— Select PPE —</option>
+                  {PPE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </Field>
+            </Row2>
+            <Row2>
+              <Field label="Size / Specification">
+                <input value={form.size} onChange={e => set("size", e.target.value)} placeholder="e.g. Size 10, L, Medium" style={inp} />
+              </Field>
+              <Field label="Quantity">
+                <input type="number" min="1" value={form.qty} onChange={e => set("qty", e.target.value)} style={inp} />
+              </Field>
+            </Row2>
+            <Row2>
+              <Field label="Issue Date">
+                <input type="date" value={form.issueDate} onChange={e => set("issueDate", e.target.value)} style={inp} />
+              </Field>
+              <Field label="Condition at Issue">
+                <select value={form.condition} onChange={e => set("condition", e.target.value)} style={inp}>
+                  {PPE_CONDITIONS.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </Field>
+            </Row2>
+            <Row2>
+              <Field label="Replacement Due Date">
+                <input type="date" value={form.replacementDue} onChange={e => set("replacementDue", e.target.value)} style={inp} />
+              </Field>
+              <Field label="Return Date (if returned)">
+                <input type="date" value={form.returnDate} onChange={e => set("returnDate", e.target.value)} style={inp} />
+              </Field>
+            </Row2>
+            <div style={{ background: C.surface, borderRadius: 9, padding: "14px 16px", marginBottom: 14 }}>
+              <div style={{ fontWeight: 700, fontSize: 12, color: C.text, marginBottom: 10 }}>Employee Sign-off</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                <input type="checkbox" id="signedOff" checked={!!form.signedOff} onChange={e => set("signedOff", e.target.checked)} style={{ width: 16, height: 16, accentColor: C.red }} />
+                <label htmlFor="signedOff" style={{ fontSize: 12, color: C.text, cursor: "pointer" }}>Employee has acknowledged receipt and condition of PPE</label>
+              </div>
+              {form.signedOff && (
+                <Field label="Date Signed">
+                  <input type="date" value={form.signedDate} onChange={e => set("signedDate", e.target.value)} style={inp} />
+                </Field>
+              )}
+            </div>
+            <Field label="Notes">
+              <textarea value={form.notes} onChange={e => set("notes", e.target.value)} rows={2} style={{ ...inp, height: "auto" }} />
+            </Field>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 20 }}>
+              <Btn variant="outline" onClick={() => { setShowModal(false); setForm(blank); }}>Cancel</Btn>
+              <Btn onClick={save}>{form.id ? "Save Changes" : "Issue PPE"}</Btn>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── H&S APPOINTMENTS REGISTER ────────────────────────────────────────────────
+const HS_APPT_TYPES = [
+  { label: "Section 16.2 — Delegated H&S Responsibility", mandatory: true, section: "OHSA Sec 16.2" },
+  { label: "Section 17 — Safety Representative", mandatory: true, section: "OHSA Sec 17" },
+  { label: "Section 18 — Safety Committee Member", mandatory: false, section: "OHSA Sec 18" },
+  { label: "Construction Supervisor (Reg 8.1)", mandatory: true, section: "Constr. Reg 8.1" },
+  { label: "Assistant Construction Supervisor (Reg 8.6)", mandatory: false, section: "Constr. Reg 8.6" },
+  { label: "Competent Person — Excavation (Reg 11)", mandatory: false, section: "Constr. Reg 11" },
+  { label: "Competent Person — Formwork (Reg 15)", mandatory: false, section: "Constr. Reg 15" },
+  { label: "Competent Person — Scaffolding (Reg 16)", mandatory: false, section: "Constr. Reg 16" },
+  { label: "Competent Person — Demolition (Reg 10)", mandatory: false, section: "Constr. Reg 10" },
+  { label: "First Aider", mandatory: true, section: "OHSA First Aid Reg" },
+  { label: "Fire Fighter / Fire Warden", mandatory: true, section: "OHSA Fire Reg" },
+  { label: "Emergency Coordinator", mandatory: true, section: "OHSA Sec 8" },
+  { label: "Environmental Officer", mandatory: false, section: "NEMA" },
+  { label: "Stacking & Storage Supervisor", mandatory: false, section: "Stacking Reg" },
+  { label: "Noise / Dust / Hazardous Chem Officer", mandatory: false, section: "OHSA Reg 7" },
+  { label: "Other Written Appointment", mandatory: false, section: "Other" },
+];
+const MANDATORY_APPTS = HS_APPT_TYPES.filter(a => a.mandatory).map(a => a.label);
+
+function HSAppointmentsTab({ hsAppointments, setHsAppointments, employees, currentUser,
+  add, update, del, toast, can, fmt, today,
+  C, inp, Field, Row2, Btn, Card, Tbl, TR, Empty, KPI, Pill, PageTitle }) {
+
+  const blank = { apptType: "", employeeId: "", site: "All Sites", appointedBy: "", appointmentDate: "", expiryDate: "", letterRef: "", status: "Active", notes: "" };
+  const [form, setForm] = useState(blank);
+  const [showModal, setShowModal] = useState(false);
+  const [filterSite, setFilterSite] = useState("all");
+
+  const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
+  const empName = id => { const e = employees.find(x => x.id === id); return e ? (e.name || `${e.firstName||""} ${e.lastName||""}`.trim()) : id; };
+
+  const active = hsAppointments.filter(a => a.status === "Active");
+  const expired = hsAppointments.filter(a => a.expiryDate && a.expiryDate < today() && a.status === "Active");
+  const expiring = hsAppointments.filter(a => {
+    if (!a.expiryDate || a.status !== "Active") return false;
+    const days = Math.ceil((new Date(a.expiryDate) - new Date(today())) / 86400000);
+    return days >= 0 && days <= 60;
+  });
+
+  // Find which mandatory appointment types are missing entirely
+  const filledTypes = new Set(active.map(a => a.apptType));
+  const missingMandatory = MANDATORY_APPTS.filter(m => !filledTypes.has(m));
+
+  const filtered = hsAppointments.filter(a => filterSite === "all" || a.site === filterSite);
+  const sites = [...new Set(hsAppointments.map(a => a.site).filter(Boolean))];
+
+  const apptStatusColor = a => {
+    if (a.expiryDate && a.expiryDate < today()) return C.red;
+    if (expiring.some(e => e.id === a.id)) return "#d97706";
+    if (a.status !== "Active") return C.muted;
+    return "#16a34a";
+  };
+  const apptStatusLabel = a => {
+    if (a.expiryDate && a.expiryDate < today()) return "Expired";
+    if (expiring.some(e => e.id === a.id)) return "Expiring Soon";
+    if (a.status !== "Active") return a.status;
+    return "Active";
+  };
+
+  const save = () => {
+    if (!form.apptType || !form.employeeId) return toast("Appointment type and employee are required", "error");
+    if (!form.appointmentDate) return toast("Appointment date is required — the written appointment must be dated", "error");
+    if (form.id) { update("mcw_hsappt", setHsAppointments, hsAppointments, form.id, form); toast("Appointment updated"); }
+    else { add("mcw_hsappt", setHsAppointments, hsAppointments, form); toast("Appointment recorded"); }
+    setShowModal(false); setForm(blank);
+  };
+
+  return (
+    <div>
+      <PageTitle
+        title="H&S APPOINTMENT REGISTER"
+        sub="OHSA Sec 16.2 / 17 / 18 and Construction Regulation written appointments — mandatory signed letters on file"
+        action={can(currentUser, "canAdd") && (
+          <Btn onClick={() => { setForm(blank); setShowModal(true); }}><ClipboardSignature size={13} strokeWidth={1.75} style={{ marginRight: 5 }} />Add Appointment</Btn>
+        )}
+      />
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(145px,1fr))", gap: 12, marginBottom: 22 }}>
+        <KPI label="Active Appointments" value={active.length} icon={ClipboardSignature} color={C.info} sub="on record" />
+        <KPI label="Missing Mandatory" value={missingMandatory.length} icon={AlertOctagon} color={missingMandatory.length > 0 ? C.red : "#16a34a"} sub="legally required" />
+        <KPI label="Expired" value={expired.length} icon={ShieldAlert} color={expired.length > 0 ? C.red : C.muted} sub="need renewal" />
+        <KPI label="Expiring (60 days)" value={expiring.length} icon={FileWarning} color={expiring.length > 0 ? "#d97706" : C.muted} sub="plan renewal" />
+      </div>
+
+      {missingMandatory.length > 0 && (
+        <div style={{ background: "#FEF2F2", border: `1px solid ${C.redBorder}`, borderRadius: 10, padding: "14px 18px", marginBottom: 18 }}>
+          <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+            <AlertOctagon size={18} color={C.red} style={{ marginTop: 1, flexShrink: 0 }} />
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 13, color: C.red, marginBottom: 6 }}>Mandatory Appointments Missing — Legal Risk</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {missingMandatory.map(m => (
+                  <span key={m} style={{ background: C.redLight, color: C.red, border: `1px solid ${C.redBorder}`, borderRadius: 6, padding: "3px 10px", fontSize: 10.5, fontWeight: 600 }}>{m.split(" — ")[0]}</span>
+                ))}
+              </div>
+              <div style={{ fontSize: 10.5, color: "#991b1b", marginTop: 8 }}>Each appointment must be in writing, signed by the appointing authority and accepted in writing by the appointee.</div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div style={{ display: "flex", gap: 10, marginBottom: 18, flexWrap: "wrap", alignItems: "center" }}>
+        <select value={filterSite} onChange={e => setFilterSite(e.target.value)} style={{ ...inp, width: 200 }}>
+          <option value="all">All Sites</option>
+          {sites.map(s => <option key={s} value={s}>{s}</option>)}
+        </select>
+      </div>
+
+      {filtered.length === 0 && <Empty icon={ClipboardSignature} title="No appointments on record" desc="Record all written H&S appointments. Missing appointments are a direct OHSA violation." />}
+
+      {filtered.length > 0 && (
+        <Tbl heads={["Appointment Type", "OHSA Reference", "Appointee", "Site", "Date Appointed", "Expiry", "Letter Ref", "Status", ""]}>
+          {filtered.map(a => {
+            const typeInfo = HS_APPT_TYPES.find(t => t.label === a.apptType);
+            return (
+              <TR key={a.id}>
+                <td style={{ padding: "10px 12px", fontSize: 11.5, fontWeight: 600, color: C.text, maxWidth: 200 }}>
+                  {typeInfo?.mandatory && <span style={{ fontSize: 9, background: C.redLight, color: C.red, borderRadius: 4, padding: "1px 5px", marginRight: 6, fontWeight: 700 }}>MANDATORY</span>}
+                  {a.apptType}
+                </td>
+                <td style={{ padding: "10px 12px", fontSize: 10.5, color: C.muted, whiteSpace: "nowrap" }}>{typeInfo?.section || "—"}</td>
+                <td style={{ padding: "10px 12px", fontSize: 12, color: C.text, fontWeight: 600 }}>{empName(a.employeeId)}</td>
+                <td style={{ padding: "10px 12px", fontSize: 11, color: C.muted }}>{a.site || "—"}</td>
+                <td style={{ padding: "10px 12px", fontSize: 11, color: C.muted }}>{a.appointmentDate ? fmt(a.appointmentDate) : <span style={{ color: C.red, fontWeight: 600 }}>⚠ Not dated</span>}</td>
+                <td style={{ padding: "10px 12px", fontSize: 11, color: a.expiryDate && a.expiryDate < today() ? C.red : C.muted }}>
+                  {a.expiryDate ? fmt(a.expiryDate) : <span style={{ color: C.muted, fontSize: 10.5 }}>No expiry</span>}
+                </td>
+                <td style={{ padding: "10px 12px", fontSize: 11, color: C.muted }}>{a.letterRef || "—"}</td>
+                <td style={{ padding: "10px 12px" }}>
+                  <Pill label={apptStatusLabel(a)} color={apptStatusColor(a).startsWith("#") ? apptStatusColor(a) : "gray"} />
+                </td>
+                <td style={{ padding: "10px 12px", whiteSpace: "nowrap" }}>
+                  {can(currentUser, "canEdit") && <button onClick={() => { setForm({ ...a }); setShowModal(true); }} style={{ background: "none", border: "none", cursor: "pointer", color: C.muted, fontSize: 13, marginRight: 8 }}>✎</button>}
+                  {can(currentUser, "canDelete") && <button onClick={() => del("mcw_hsappt", setHsAppointments, hsAppointments, a.id)} style={{ background: "none", border: "none", cursor: "pointer", color: C.muted, fontSize: 14 }}>×</button>}
+                </td>
+              </TR>
+            );
+          })}
+        </Tbl>
+      )}
+
+      {showModal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ background: C.white, borderRadius: 14, padding: 28, width: "min(560px,96vw)", maxHeight: "90vh", overflowY: "auto", boxShadow: "0 24px 60px rgba(0,0,0,0.35)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+              <div style={{ fontWeight: 800, fontSize: 15, color: C.text }}>{form.id ? "Edit Appointment" : "Record H&S Appointment"}</div>
+              <button onClick={() => { setShowModal(false); setForm(blank); }} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 22, color: C.muted }}>×</button>
+            </div>
+            <Field label="Appointment Type" required>
+              <select value={form.apptType} onChange={e => set("apptType", e.target.value)} style={inp}>
+                <option value="">— Select Appointment Type —</option>
+                {HS_APPT_TYPES.map(t => (
+                  <option key={t.label} value={t.label}>{t.mandatory ? "★ " : ""}{t.label} ({t.section})</option>
+                ))}
+              </select>
+            </Field>
+            <Row2>
+              <Field label="Appointee (Employee)" required>
+                <select value={form.employeeId} onChange={e => set("employeeId", e.target.value)} style={inp}>
+                  <option value="">— Select —</option>
+                  {employees.map(e => <option key={e.id} value={e.id}>{e.name || `${e.firstName||""} ${e.lastName||""}`.trim()}</option>)}
+                </select>
+              </Field>
+              <Field label="Site / Scope">
+                <input value={form.site} onChange={e => set("site", e.target.value)} placeholder="e.g. All Sites, Site A — N3" style={inp} />
+              </Field>
+            </Row2>
+            <Row2>
+              <Field label="Appointed By">
+                <input value={form.appointedBy} onChange={e => set("appointedBy", e.target.value)} placeholder="Name of appointing authority" style={inp} />
+              </Field>
+              <Field label="Letter / Reference No.">
+                <input value={form.letterRef} onChange={e => set("letterRef", e.target.value)} placeholder="e.g. MCW-HS-001" style={inp} />
+              </Field>
+            </Row2>
+            <Row2>
+              <Field label="Date of Appointment" required>
+                <input type="date" value={form.appointmentDate} onChange={e => set("appointmentDate", e.target.value)} style={inp} />
+              </Field>
+              <Field label="Expiry Date (if applicable)">
+                <input type="date" value={form.expiryDate} onChange={e => set("expiryDate", e.target.value)} style={inp} />
+              </Field>
+            </Row2>
+            <Field label="Status">
+              <select value={form.status} onChange={e => set("status", e.target.value)} style={inp}>
+                <option value="Active">Active</option>
+                <option value="Revoked">Revoked</option>
+                <option value="Superseded">Superseded</option>
+              </select>
+            </Field>
+            <Field label="Notes">
+              <textarea value={form.notes} onChange={e => set("notes", e.target.value)} rows={2} style={{ ...inp, height: "auto" }} placeholder="e.g. Appointee accepted in writing on same date" />
+            </Field>
+            <div style={{ background: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 8, padding: "10px 14px", marginBottom: 16, fontSize: 11, color: "#92400E" }}>
+              <strong>Reminder:</strong> The appointment letter must be signed by both the appointing authority and the appointee. Keep the physical signed letter on file — the system records the reference only.
+            </div>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <Btn variant="outline" onClick={() => { setShowModal(false); setForm(blank); }}>Cancel</Btn>
+              <Btn onClick={save}>{form.id ? "Save Changes" : "Record Appointment"}</Btn>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 // ── RISK ASSESSMENT REGISTER ─────────────────────────────────────────────────
 const RISK_ACTIVITIES = [
@@ -6072,6 +6527,8 @@ export default function App() {
       ["coid",          setCoidRecords],
       ["riskassess",    setRiskAssessments],
       ["training",      setTrainingRecords],
+      ["ppe",           setPpeRecords],
+      ["hsappt",        setHsAppointments],
     ];
     const unsubscribers = realTimeCollections.map(([name, setter]) => {
       return onSnapshot(collection(db, name), (snapshot) => {
@@ -6143,6 +6600,8 @@ export default function App() {
       ["coid",          setCoidRecords],
       ["riskassess",    setRiskAssessments],
       ["training",      setTrainingRecords],
+      ["ppe",           setPpeRecords],
+      ["hsappt",        setHsAppointments],
     ];
 
     for (const [name, setter] of collections) {
@@ -6413,6 +6872,8 @@ export default function App() {
   const [coidRecords, setCoidRecords] = useState([]);
   const [riskAssessments, setRiskAssessments] = useState([]);
   const [trainingRecords, setTrainingRecords] = useState([]);
+  const [ppeRecords, setPpeRecords] = useState([]);
+  const [hsAppointments, setHsAppointments] = useState([]);
   const [purchaseOrders, setPurchaseOrders] = useState([]);
   const [hireReqs, setHireReqs] = useState([]);
   const dCon = {
@@ -16614,6 +17075,32 @@ input:focus,select:focus,textarea:focus{border-color:${C.red}!important;box-shad
               coidRecords={coidRecords} setCoidRecords={setCoidRecords}
               employees={employees} assets={assets} incidents={incidents}
               currentUser={currentUser}
+              add={add} update={update} del={del}
+              toast={toast} can={can} fmt={fmt} today={today}
+              C={C} inp={inp} Field={Field} Row2={Row2}
+              Btn={Btn} Card={Card} Tbl={Tbl} TR={TR} Empty={Empty}
+              KPI={KPI} Pill={Pill} PageTitle={PageTitle}
+            />
+          )}
+
+          {/* PPE ISSUE REGISTER */}
+          {tab === "PPERegister" && (
+            <PPERegisterTab
+              ppeRecords={ppeRecords} setPpeRecords={setPpeRecords}
+              employees={employees} currentUser={currentUser}
+              add={add} update={update} del={del}
+              toast={toast} can={can} fmt={fmt} today={today}
+              C={C} inp={inp} Field={Field} Row2={Row2}
+              Btn={Btn} Card={Card} Tbl={Tbl} TR={TR} Empty={Empty}
+              KPI={KPI} Pill={Pill} PageTitle={PageTitle}
+            />
+          )}
+
+          {/* H&S APPOINTMENTS */}
+          {tab === "HSAppointments" && (
+            <HSAppointmentsTab
+              hsAppointments={hsAppointments} setHsAppointments={setHsAppointments}
+              employees={employees} currentUser={currentUser}
               add={add} update={update} del={del}
               toast={toast} can={can} fmt={fmt} today={today}
               C={C} inp={inp} Field={Field} Row2={Row2}
