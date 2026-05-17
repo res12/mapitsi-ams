@@ -4,24 +4,31 @@ import { db, auth, collection, doc, getDocs, setDoc, deleteDoc, onSnapshot, sign
 
 const C = {
   red: "#8C1414",
-  redHover: "#A51818",
+  redHover: "#A01818",
+  redDeep: "#620E0E",
   redLight: "#FEF2F2",
   redBorder: "#FECACA",
-  dark: "#111318",
-  darkMid: "#1C2030",
-  sidebar: "#13161E",
-  surface: "#F5F6FA",
+  redGlow: "rgba(140,20,20,0.22)",
+  dark: "#090B10",
+  darkMid: "#13161E",
+  sidebar: "#0D1017",
+  sidebarBorder: "#181C28",
+  surface: "#F0F2F8",
+  surfaceMid: "#E6E9F4",
   white: "#FFFFFF",
-  border: "#E4E6EE",
-  text: "#1A1F2E",
-  muted: "#6B7280",
-  mutedLt: "#9CA3AF",
+  border: "#E1E4EF",
+  borderSubtle: "#ECEEF6",
+  text: "#0F1320",
+  muted: "#60718A",
+  mutedLt: "#8FA0B8",
   success: "#059669",
   successBg: "#ECFDF5",
   warn: "#D97706",
   warnBg: "#FFFBEB",
   info: "#1D4ED8",
   infoBg: "#EFF6FF",
+  gold: "#C9A84C",
+  goldLight: "rgba(201,168,76,0.12)",
 };
 const CATEGORIES = [
   "Vehicle",
@@ -409,64 +416,57 @@ function Pill({ text, color = "gray" }) {
 function KPI({ label, value, sub, color, icon }) {
   return (
     <div
+      className="kpi-hover"
       style={{
         background: C.white,
-        borderRadius: 10,
-        padding: "20px 22px",
+        borderRadius: 12,
+        padding: "0",
         border: `1px solid ${C.border}`,
-        boxShadow: "0 1px 4px rgba(0,0,0,0.05)",
+        boxShadow: "0 2px 12px rgba(0,0,0,0.06)",
         position: "relative",
         overflow: "hidden",
       }}
     >
-      <div
-        style={{
-          position: "absolute",
-          top: 0,
-          left: 0,
-          width: 3,
-          height: "100%",
-          background: color,
-        }}
-      />
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "flex-start",
-        }}
-      >
-        <div>
-          <div
-            style={{
-              fontSize: 11,
-              color: C.muted,
-              fontWeight: 600,
-              textTransform: "uppercase",
-              letterSpacing: 0.8,
-              marginBottom: 7,
-            }}
-          >
+      {/* Top color bar */}
+      <div style={{
+        position: "absolute", top: 0, left: 0, right: 0,
+        height: 3,
+        background: `linear-gradient(90deg,${color},${color}88)`,
+      }}/>
+      <div style={{ padding: "20px 20px 18px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
+          <div style={{
+            fontSize: 10,
+            color: C.muted,
+            fontWeight: 700,
+            textTransform: "uppercase",
+            letterSpacing: 1.1,
+          }}>
             {label}
           </div>
-          <div
-            style={{
-              fontSize: 23,
-              fontWeight: 700,
-              color: C.text,
-              letterSpacing: -0.5,
-              fontFamily: "'Barlow Condensed',sans-serif",
-            }}
-          >
-            {value}
-          </div>
-          {sub && (
-            <div style={{ fontSize: 11, color: C.mutedLt, marginTop: 4 }}>
-              {sub}
-            </div>
-          )}
+          <div style={{
+            width: 30, height: 30, borderRadius: 8,
+            background: `${color}18`,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontSize: 14, color,
+          }}>{icon}</div>
         </div>
-        <div style={{ fontSize: 22, opacity: 0.12 }}>{icon}</div>
+        <div style={{
+          fontSize: 26,
+          fontWeight: 800,
+          color: C.text,
+          letterSpacing: -0.5,
+          fontFamily: "'Barlow Condensed',sans-serif",
+          lineHeight: 1.1,
+          animation: "countIn 0.4s ease both",
+        }}>
+          {value}
+        </div>
+        {sub && (
+          <div style={{ fontSize: 11, color: C.mutedLt, marginTop: 5, fontWeight: 400 }}>
+            {sub}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -481,14 +481,14 @@ function Btn({
 }) {
   const sizes = {
     sm: { padding: "6px 14px", fontSize: 12 },
-    md: { padding: "9px 18px", fontSize: 13 },
-    lg: { padding: "11px 24px", fontSize: 14 },
+    md: { padding: "9px 20px", fontSize: 13 },
+    lg: { padding: "11px 26px", fontSize: 14 },
   };
   const variants = {
     primary: {
-      background: C.red,
+      background: `linear-gradient(135deg,${C.red} 0%,${C.redDeep} 100%)`,
       color: C.white,
-      boxShadow: "0 2px 8px rgba(140,20,20,0.25)",
+      boxShadow: `0 3px 12px ${C.redGlow}`,
       border: "none",
     },
     ghost: {
@@ -500,22 +500,23 @@ function Btn({
     outline: {
       background: C.white,
       color: C.red,
-      border: `1px solid ${C.red}`,
+      border: `1.5px solid ${C.red}`,
       boxShadow: "none",
     },
   };
   return (
     <button
       onClick={onClick}
+      className={`btn-${variant}`}
       style={{
-        borderRadius: 7,
+        borderRadius: 8,
         fontFamily: "'DM Sans',sans-serif",
         fontWeight: 600,
         cursor: "pointer",
         display: "inline-flex",
         alignItems: "center",
         gap: 6,
-        transition: "all 0.15s",
+        letterSpacing: 0.2,
         ...sizes[size],
         ...variants[variant],
         ...s,
@@ -532,43 +533,46 @@ function Modal({ title, subtitle, onClose, children }) {
       style={{
         position: "fixed",
         inset: 0,
-        background: "rgba(17,19,24,0.65)",
+        background: "rgba(9,11,16,0.72)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
         zIndex: 9999,
         padding: 20,
-        backdropFilter: "blur(3px)",
+        backdropFilter: "blur(6px)",
+        animation: "fadeIn 0.2s ease",
       }}
     >
       <div
         style={{
           background: C.white,
-          borderRadius: 14,
+          borderRadius: 16,
           width: "100%",
           maxWidth: 540,
           maxHeight: "92vh",
           overflowY: "auto",
-          boxShadow: "0 24px 80px rgba(0,0,0,0.3)",
+          boxShadow: "0 32px 100px rgba(0,0,0,0.35), 0 0 0 1px rgba(255,255,255,0.06)",
           border: `1px solid ${C.border}`,
+          animation: "scaleIn 0.22s ease",
         }}
       >
         <div
           style={{
             padding: "22px 28px",
-            borderBottom: `1px solid ${C.border}`,
-            background: C.surface,
+            borderBottom: `1px solid ${C.borderSubtle}`,
+            background: `linear-gradient(180deg,${C.white},${C.surface}80)`,
             display: "flex",
             justifyContent: "space-between",
             alignItems: "flex-start",
+            borderRadius: "16px 16px 0 0",
           }}
         >
           <div>
-            <div style={{ fontSize: 15, fontWeight: 700, color: C.text }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: C.text, letterSpacing: 0.1 }}>
               {title}
             </div>
             {subtitle && (
-              <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>
+              <div style={{ fontSize: 12, color: C.muted, marginTop: 3 }}>
                 {subtitle}
               </div>
             )}
@@ -576,12 +580,18 @@ function Modal({ title, subtitle, onClose, children }) {
           <button
             onClick={onClose}
             style={{
-              background: "none",
-              border: "none",
-              fontSize: 18,
+              background: C.surfaceMid,
+              border: `1px solid ${C.border}`,
+              borderRadius: 8,
+              width: 30,
+              height: 30,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 14,
               cursor: "pointer",
-              color: C.mutedLt,
-              padding: "0 4px",
+              color: C.muted,
+              transition: "all 0.15s",
             }}
           >
             ✕
@@ -641,18 +651,18 @@ function Tbl({ cols, children, foot }) {
     <div style={{ overflowX: "auto" }}>
       <table style={{ width: "100%", borderCollapse: "collapse" }}>
         <thead>
-          <tr style={{ background: C.surface }}>
+          <tr style={{ background: `linear-gradient(180deg,${C.surface},${C.surfaceMid}60)` }}>
             {cols.map((h) => (
               <th
                 key={h}
                 style={{
-                  padding: "8px 11px",
+                  padding: "9px 12px",
                   textAlign: "left",
-                  fontSize: 10,
+                  fontSize: 9.5,
                   color: C.muted,
                   fontWeight: 700,
                   textTransform: "uppercase",
-                  letterSpacing: 0.6,
+                  letterSpacing: 0.8,
                   borderBottom: `1px solid ${C.border}`,
                   whiteSpace: "nowrap",
                 }}
@@ -741,10 +751,10 @@ function Card({ title, sub, action, children }) {
     <div
       style={{
         background: C.white,
-        borderRadius: 10,
+        borderRadius: 12,
         border: `1px solid ${C.border}`,
         overflow: "hidden",
-        boxShadow: "0 1px 4px rgba(0,0,0,0.04)",
+        boxShadow: "0 2px 12px rgba(0,0,0,0.05)",
       }}
     >
       {(title || action) && (
@@ -753,16 +763,17 @@ function Card({ title, sub, action, children }) {
             display: "flex",
             justifyContent: "space-between",
             alignItems: "center",
-            padding: "16px 20px",
-            borderBottom: `1px solid ${C.border}`,
+            padding: "16px 22px",
+            borderBottom: `1px solid ${C.borderSubtle}`,
+            background: `linear-gradient(180deg,${C.white} 0%,${C.surface}44 100%)`,
           }}
         >
           <div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: C.text, letterSpacing: 0.1 }}>
               {title}
             </div>
             {sub && (
-              <div style={{ fontSize: 11, color: C.muted, marginTop: 1 }}>
+              <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>
                 {sub}
               </div>
             )}
@@ -4047,6 +4058,7 @@ export default function App() {
   const [schedules, setSchedules] = useState([]);
   const [month, setMonth] = useState(today().slice(0, 7));
   const [side, setSide] = useState(true);
+  const [appLoading, setAppLoading] = useState(true);
   const [currentUser, setCurrentUser] = useState(null);
   const [users, setUsers] = useState(DEFAULT_USERS);
   const [loginForm, setLoginForm] = useState({
@@ -4273,6 +4285,7 @@ export default function App() {
         if (r) { const saved = JSON.parse(r); setUsers(saved.length ? saved : DEFAULT_USERS); }
       } catch {}
     }
+    setAppLoading(false);
   });
 
   return () => unsubAuth(); // clean up listener on unmount
@@ -5799,237 +5812,370 @@ export default function App() {
     }
   };
 
+  if (appLoading)
+    return (
+      <div style={{
+        position: "fixed", inset: 0,
+        background: "#090B10",
+        display: "flex", flexDirection: "column",
+        alignItems: "center", justifyContent: "center",
+        fontFamily: "'DM Sans',sans-serif",
+        zIndex: 9999,
+        overflow: "hidden",
+      }}>
+        <style>{`
+          @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;700&family=Barlow+Condensed:wght@700;800;900&display=swap');
+          *{box-sizing:border-box;}
+          @keyframes fadeUpSplash{from{opacity:0;transform:translateY(22px)}to{opacity:1;transform:translateY(0)}}
+          @keyframes pulseRingSplash{0%,100%{transform:scale(1);opacity:0.45}50%{transform:scale(1.16);opacity:0.08}}
+          @keyframes shimmerSplash{0%{background-position:-200% center}100%{background-position:200% center}}
+          @keyframes scanLineSplash{0%{top:-8%}100%{top:108%}}
+          @keyframes rotateSplash{to{transform:rotate(360deg)}}
+        `}</style>
+
+        {/* Background decoration */}
+        <div style={{ position: "absolute", inset: 0, pointerEvents: "none", overflow: "hidden" }}>
+          {/* Concentric rings */}
+          {[700, 520, 360, 220].map((sz, i) => (
+            <div key={sz} style={{
+              position: "absolute", top: "50%", left: "50%",
+              transform: "translate(-50%,-50%)",
+              width: sz, height: sz, borderRadius: "50%",
+              border: `1px solid rgba(140,20,20,${0.04 + i * 0.025})`,
+            }}/>
+          ))}
+          {/* Grid */}
+          <div style={{
+            position: "absolute", inset: 0,
+            backgroundImage: "linear-gradient(rgba(255,255,255,0.012) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,0.012) 1px,transparent 1px)",
+            backgroundSize: "52px 52px",
+          }}/>
+          {/* Red glow pool */}
+          <div style={{
+            position: "absolute", bottom: "-18%", left: "50%", transform: "translateX(-50%)",
+            width: 700, height: 420,
+            background: "radial-gradient(ellipse,rgba(140,20,20,0.14) 0%,transparent 70%)",
+          }}/>
+          {/* Scan line */}
+          <div style={{
+            position: "absolute", left: 0, right: 0, height: 1,
+            background: "linear-gradient(90deg,transparent,rgba(140,20,20,0.4),transparent)",
+            animation: "scanLineSplash 3s linear infinite",
+            top: 0,
+          }}/>
+        </div>
+
+        {/* Logo mark */}
+        <div style={{ position: "relative", marginBottom: 32, animation: "fadeUpSplash 0.7s ease both" }}>
+          <div style={{
+            position: "absolute", inset: -18, borderRadius: 30,
+            border: "1.5px solid rgba(140,20,20,0.3)",
+            animation: "pulseRingSplash 2.6s ease-in-out infinite",
+          }}/>
+          <div style={{
+            position: "absolute", inset: -32, borderRadius: 40,
+            border: "1px solid rgba(140,20,20,0.12)",
+            animation: "pulseRingSplash 2.6s 0.6s ease-in-out infinite",
+          }}/>
+          <div style={{
+            width: 92, height: 92,
+            background: "linear-gradient(145deg,#8C1414 0%,#5a0c0c 100%)",
+            borderRadius: 22,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            boxShadow: "0 24px 64px rgba(140,20,20,0.45), 0 0 0 1px rgba(255,255,255,0.07)",
+          }}>
+            {company.logoUrl ? (
+              <img src={company.logoUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: 22 }}/>
+            ) : (
+              <span style={{ fontSize: 34, fontWeight: 900, color: "#fff", fontFamily: "'Barlow Condensed',sans-serif", letterSpacing: 1 }}>MC</span>
+            )}
+          </div>
+        </div>
+
+        {/* Company name */}
+        <div style={{ textAlign: "center", animation: "fadeUpSplash 0.7s 0.1s ease both", opacity: 0, marginBottom: 44 }}>
+          <div style={{
+            fontSize: 30, fontWeight: 800, color: "#fff",
+            fontFamily: "'Barlow Condensed',sans-serif",
+            letterSpacing: 3.5, textTransform: "uppercase",
+            textShadow: "0 4px 24px rgba(0,0,0,0.6)", marginBottom: 6,
+          }}>
+            {company.name || "Mapitsi Civil Works"}
+          </div>
+          <div style={{ fontSize: 10, color: "rgba(255,255,255,0.28)", letterSpacing: 4, textTransform: "uppercase" }}>
+            Fleet · Asset Management Portal
+          </div>
+        </div>
+
+        {/* Loading bar */}
+        <div style={{ animation: "fadeUpSplash 0.7s 0.2s ease both", opacity: 0 }}>
+          <div style={{
+            width: 220, height: 2,
+            background: "rgba(255,255,255,0.07)",
+            borderRadius: 99, overflow: "hidden", marginBottom: 14,
+          }}>
+            <div style={{
+              height: "100%",
+              background: "linear-gradient(90deg,transparent,#8C1414 30%,#d44 50%,#8C1414 70%,transparent)",
+              backgroundSize: "200% 100%",
+              animation: "shimmerSplash 1.4s ease-in-out infinite",
+              borderRadius: 99,
+            }}/>
+          </div>
+          <div style={{ textAlign: "center", fontSize: 10, color: "rgba(255,255,255,0.2)", letterSpacing: 2.5, textTransform: "uppercase" }}>
+            Initializing System
+          </div>
+        </div>
+      </div>
+    );
+
   if (!currentUser)
     return (
-      <div
-        style={{
-          minHeight: "100vh",
-          background: C.dark,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          fontFamily: "'DM Sans',sans-serif",
-        }}
-      >
-        <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=Barlow+Condensed:wght@600;700;800&display=swap');*{box-sizing:border-box;}`}</style>
-        <div
-          style={{
-            background: C.white,
-            borderRadius: 14,
-            padding: "40px 44px",
-            width: "100%",
-            maxWidth: 400,
-            boxShadow: "0 24px 80px rgba(0,0,0,0.5)",
-          }}
-        >
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 12,
-              marginBottom: 28,
-            }}
-          >
-            <div
-              style={{
-                width: 44,
-                height: 44,
-                background: C.red,
-                borderRadius: 8,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                overflow: "hidden",
-                flexShrink: 0,
-              }}
-            >
+      <div style={{
+        minHeight: "100vh", display: "flex",
+        fontFamily: "'DM Sans',sans-serif",
+        background: "#090B10",
+      }}>
+        <style>{`
+          @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Barlow+Condensed:wght@600;700;800;900&display=swap');
+          *{box-sizing:border-box;}
+          @keyframes fadeUpLogin{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+          @keyframes pulseRingLogin{0%,100%{transform:scale(1);opacity:0.4}50%{transform:scale(1.14);opacity:0.07}}
+          @keyframes scanLogin{0%{top:-5%}100%{top:105%}}
+          @keyframes shimmerLogin{0%{background-position:-200% center}100%{background-position:200% center}}
+          .login-inp{width:100%;padding:13px 16px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.09);border-radius:9px;font-size:14px;color:#fff;outline:none;box-sizing:border-box;font-family:'DM Sans',sans-serif;transition:all 0.2s;}
+          .login-inp:focus{border-color:#8C1414!important;box-shadow:0 0 0 3px rgba(140,20,20,0.18)!important;}
+          .login-inp::placeholder{color:rgba(255,255,255,0.22);}
+          .sign-in-btn{width:100%;padding:14px;background:linear-gradient(135deg,#8C1414 0%,#620E0E 100%);color:#fff;border:none;border-radius:9px;font-size:14px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;letter-spacing:0.4px;box-shadow:0 6px 24px rgba(140,20,20,0.35);transition:all 0.2s;}
+          .sign-in-btn:hover{background:linear-gradient(135deg,#A01818 0%,#7a1010 100%)!important;transform:translateY(-1px)!important;box-shadow:0 10px 32px rgba(140,20,20,0.5)!important;}
+          .forgot-btn{background:none;border:none;color:rgba(255,255,255,0.3);font-size:12px;cursor:pointer;font-family:'DM Sans',sans-serif;transition:color 0.2s;text-decoration:underline;text-underline-offset:3px;}
+          .forgot-btn:hover{color:rgba(255,255,255,0.6)!important;}
+        `}</style>
+
+        {/* ── LEFT BRAND PANEL ── */}
+        <div style={{
+          flex: 1,
+          background: "linear-gradient(150deg,#090B10 0%,#0D1017 40%,#150809 100%)",
+          display: "flex", flexDirection: "column",
+          alignItems: "center", justifyContent: "center",
+          position: "relative", overflow: "hidden",
+          padding: "60px 48px",
+        }}>
+          {/* Decorative background */}
+          <div style={{ position: "absolute", inset: 0, pointerEvents: "none", overflow: "hidden" }}>
+            {[680, 510, 360, 220].map((sz, i) => (
+              <div key={sz} style={{
+                position: "absolute", top: "50%", left: "50%",
+                transform: "translate(-50%,-50%)",
+                width: sz, height: sz, borderRadius: "50%",
+                border: `1px solid rgba(140,20,20,${0.04 + i * 0.025})`,
+              }}/>
+            ))}
+            <div style={{
+              position: "absolute", inset: 0,
+              backgroundImage: "linear-gradient(rgba(255,255,255,0.011) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,0.011) 1px,transparent 1px)",
+              backgroundSize: "52px 52px",
+            }}/>
+            <div style={{
+              position: "absolute", bottom: "-15%", left: "50%", transform: "translateX(-50%)",
+              width: 680, height: 460,
+              background: "radial-gradient(ellipse,rgba(140,20,20,0.13) 0%,transparent 68%)",
+            }}/>
+            <div style={{
+              position: "absolute", left: 0, right: 0, height: 1,
+              background: "linear-gradient(90deg,transparent,rgba(140,20,20,0.35),transparent)",
+              animation: "scanLogin 4s linear infinite", top: 0,
+            }}/>
+          </div>
+
+          {/* Logo */}
+          <div style={{ position: "relative", marginBottom: 34, animation: "fadeUpLogin 0.8s ease both" }}>
+            <div style={{
+              position: "absolute", inset: -20, borderRadius: 32,
+              border: "1.5px solid rgba(140,20,20,0.28)",
+              animation: "pulseRingLogin 2.8s ease-in-out infinite",
+            }}/>
+            <div style={{
+              position: "absolute", inset: -36, borderRadius: 44,
+              border: "1px solid rgba(140,20,20,0.1)",
+              animation: "pulseRingLogin 2.8s 0.7s ease-in-out infinite",
+            }}/>
+            <div style={{
+              width: 96, height: 96,
+              background: "linear-gradient(145deg,#8C1414 0%,#5a0c0c 100%)",
+              borderRadius: 22,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              boxShadow: "0 28px 70px rgba(140,20,20,0.45), 0 0 0 1px rgba(255,255,255,0.06)",
+              overflow: "hidden",
+            }}>
               {company.logoUrl ? (
-                <img
-                  src={company.logoUrl}
-                  alt="Logo"
-                  style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                  onError={(e) => {
-                    e.target.style.display = "none";
-                  }}
-                />
+                <img src={company.logoUrl} alt="Logo" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e) => { e.target.style.display = "none"; }}/>
               ) : (
-                <span
-                  style={{
-                    color: "white",
-                    fontSize: 18,
-                    fontWeight: 900,
-                    fontFamily: "'Barlow Condensed',sans-serif",
-                  }}
-                >
-                  MC
-                </span>
-              )}
-            </div>
-            <div>
-              <div
-                style={{
-                  fontSize: 18,
-                  fontWeight: 900,
-                  color: C.text,
-                  fontFamily: "'Barlow Condensed',sans-serif",
-                  letterSpacing: 0.5,
-                }}
-              >
-                {company.name || "Mapitsi Civil Works"}
-              </div>
-              <div style={{ fontSize: 11, color: C.muted, letterSpacing: 1 }}>
-                ASSET MANAGEMENT SYSTEM
-              </div>
-              {company.address && (
-                <div style={{ fontSize: 10, color: C.mutedLt, marginTop: 2 }}>
-                  {company.address}
-                  {company.city ? ", " + company.city : ""}
-                </div>
+                <span style={{ fontSize: 36, fontWeight: 900, color: "#fff", fontFamily: "'Barlow Condensed',sans-serif", letterSpacing: 1 }}>MC</span>
               )}
             </div>
           </div>
-          <div
-            style={{
-              fontSize: 14,
-              fontWeight: 700,
-              color: C.text,
-              marginBottom: 20,
-            }}
-          >
-            Sign in to your account
+
+          {/* Company title */}
+          <div style={{ textAlign: "center", position: "relative", zIndex: 1, animation: "fadeUpLogin 0.8s 0.1s ease both", opacity: 0 }}>
+            <div style={{
+              fontSize: 38, fontWeight: 900, color: "#fff",
+              fontFamily: "'Barlow Condensed',sans-serif",
+              letterSpacing: 3, textTransform: "uppercase",
+              textShadow: "0 6px 30px rgba(0,0,0,0.7)",
+              marginBottom: 10, lineHeight: 1,
+            }}>
+              {company.name || "Mapitsi Civil Works"}
+            </div>
+            <div style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", letterSpacing: 4.5, textTransform: "uppercase", marginBottom: 36 }}>
+              Asset Management System
+            </div>
+            <div style={{
+              width: 56, height: 2, margin: "0 auto 28px",
+              background: "linear-gradient(90deg,transparent,#8C1414,transparent)",
+              borderRadius: 99,
+            }}/>
+            <div style={{
+              fontSize: 13, color: "rgba(255,255,255,0.22)", maxWidth: 300,
+              margin: "0 auto", lineHeight: 1.9, fontStyle: "italic", fontWeight: 300,
+            }}>
+              "Every Good Development Starts With A Good Foundation"
+            </div>
           </div>
-          <Field label="Username">
-            <input
-              {...inp}
-              value={loginForm.username}
-              onChange={(e) =>
-                setLoginForm({
-                  ...loginForm,
-                  username: e.target.value,
-                  error: "",
-                })
-              }
-              placeholder="Enter username"
-              onKeyDown={(e) => e.key === "Enter" && doLogin()}
-            />
-          </Field>
-          <Field label="Password">
-            <input
-              type="password"
-              {...inp}
-              value={loginForm.password}
-              onChange={(e) =>
-                setLoginForm({
-                  ...loginForm,
-                  password: e.target.value,
-                  error: "",
-                })
-              }
-              placeholder="Enter password"
-              onKeyDown={(e) => e.key === "Enter" && doLogin()}
-            />
-          </Field>
-          {loginForm.error && (
-            <div
-              style={{
-                background: C.redLight,
-                border: `1px solid ${C.redBorder}`,
-                borderRadius: 7,
-                padding: "10px 14px",
-                fontSize: 12,
-                color: C.red,
-                marginBottom: 14,
-                fontWeight: 600,
-              }}
-            >
-              {loginForm.error}
+
+          {/* Contact strip */}
+          {(company.phone || company.email) && (
+            <div style={{
+              position: "absolute", bottom: 28, left: 0, right: 0,
+              textAlign: "center", fontSize: 11, color: "rgba(255,255,255,0.18)",
+              animation: "fadeUpLogin 0.8s 0.25s ease both", opacity: 0,
+            }}>
+              {company.phone && <span>{company.phone}</span>}
+              {company.phone && company.email && <span style={{ margin: "0 10px", opacity: 0.4 }}>·</span>}
+              {company.email && <span>{company.email}</span>}
             </div>
           )}
-          <Btn
-            style={{ width: "100%", justifyContent: "center", marginTop: 4 }}
-            onClick={doLogin}
-          >
-            Sign In →
-          </Btn>
-          <div style={{ textAlign: "center", marginTop: 14 }}>
-            <button
-              onClick={() =>
-                setLoginForm((f) => ({ ...f, showForgot: !f.showForgot }))
-              }
-              style={{
-                background: "none",
-                border: "none",
-                color: C.muted,
-                fontSize: 12,
-                cursor: "pointer",
-                fontFamily: "'DM Sans',sans-serif",
-                textDecoration: "underline",
-              }}
-            >
-              Forgot password?
+          <div style={{
+            position: "absolute", bottom: company.phone || company.email ? 12 : 24,
+            left: 0, right: 0, textAlign: "center",
+            fontSize: 9, color: "rgba(255,255,255,0.1)", letterSpacing: 2, textTransform: "uppercase",
+          }}>
+            Fleet Management Portal
+          </div>
+        </div>
+
+        {/* ── RIGHT LOGIN PANEL ── */}
+        <div style={{
+          width: 440, flexShrink: 0,
+          background: "#0D1017",
+          borderLeft: "1px solid rgba(255,255,255,0.05)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          padding: "40px 48px",
+        }}>
+          <div style={{ width: "100%", animation: "fadeUpLogin 0.65s 0.15s ease both", opacity: 0 }}>
+            <div style={{ fontSize: 10, color: "rgba(255,255,255,0.28)", letterSpacing: 2.8, textTransform: "uppercase", marginBottom: 10 }}>
+              Welcome back
+            </div>
+            <div style={{
+              fontSize: 27, fontWeight: 700, color: "#fff",
+              fontFamily: "'Barlow Condensed',sans-serif", letterSpacing: 0.3,
+              marginBottom: 6,
+            }}>
+              Sign in to your account
+            </div>
+            <div style={{ fontSize: 13, color: "rgba(255,255,255,0.28)", marginBottom: 36, fontWeight: 400 }}>
+              Enter your credentials to access the platform
+            </div>
+
+            {/* Username */}
+            <div style={{ marginBottom: 18 }}>
+              <label style={{
+                display: "block", fontSize: 10, fontWeight: 700,
+                color: "rgba(255,255,255,0.38)", letterSpacing: 1.6,
+                textTransform: "uppercase", marginBottom: 8,
+              }}>Username</label>
+              <input
+                className="login-inp"
+                value={loginForm.username}
+                onChange={(e) => setLoginForm({ ...loginForm, username: e.target.value, error: "" })}
+                placeholder="Enter username"
+                onKeyDown={(e) => e.key === "Enter" && doLogin()}
+              />
+            </div>
+
+            {/* Password */}
+            <div style={{ marginBottom: 24 }}>
+              <label style={{
+                display: "block", fontSize: 10, fontWeight: 700,
+                color: "rgba(255,255,255,0.38)", letterSpacing: 1.6,
+                textTransform: "uppercase", marginBottom: 8,
+              }}>Password</label>
+              <input
+                type="password"
+                className="login-inp"
+                value={loginForm.password}
+                onChange={(e) => setLoginForm({ ...loginForm, password: e.target.value, error: "" })}
+                placeholder="Enter password"
+                onKeyDown={(e) => e.key === "Enter" && doLogin()}
+              />
+            </div>
+
+            {/* Error */}
+            {loginForm.error && (
+              <div style={{
+                background: "rgba(140,20,20,0.18)",
+                border: "1px solid rgba(140,20,20,0.4)",
+                borderRadius: 8, padding: "10px 14px",
+                fontSize: 13, color: "#fca5a5",
+                marginBottom: 16, fontWeight: 500,
+              }}>
+                {loginForm.error}
+              </div>
+            )}
+
+            {/* Sign In button */}
+            <button className="sign-in-btn" onClick={doLogin}>
+              Sign In →
             </button>
-          </div>
-          {loginForm.showForgot && (
-            <div
-              style={{
-                marginTop: 12,
-                padding: "14px",
-                background: "#FFF7ED",
-                border: "1px solid #FED7AA",
-                borderRadius: 8,
-                fontSize: 12,
-                color: "#92400E",
-                lineHeight: 1.7,
-              }}
-            >
-              <strong
-                style={{ display: "block", marginBottom: 4, color: "#78350F" }}
-              >
-                Password Reset
-              </strong>
-              Contact your system administrator to reset your password. The
-              admin can update passwords via the Users panel after signing in.
-              <div style={{ marginTop: 8, fontSize: 11, color: C.muted }}>
-                Admin username: <strong style={{ color: C.text }}>admin</strong>
+
+            {/* Forgot password */}
+            <div style={{ textAlign: "center", marginTop: 18 }}>
+              <button className="forgot-btn" onClick={() => setLoginForm((f) => ({ ...f, showForgot: !f.showForgot }))}>
+                Forgot password?
+              </button>
+            </div>
+            {loginForm.showForgot && (
+              <div style={{
+                marginTop: 14, padding: "14px 16px",
+                background: "rgba(255,255,255,0.04)",
+                border: "1px solid rgba(255,255,255,0.08)",
+                borderRadius: 9, fontSize: 12, color: "rgba(255,255,255,0.45)", lineHeight: 1.8,
+              }}>
+                <strong style={{ display: "block", marginBottom: 4, color: "rgba(255,255,255,0.65)" }}>Password Reset</strong>
+                Contact your system administrator to reset your password. The admin can update passwords via the Users panel after signing in.
+                <div style={{ marginTop: 8, fontSize: 11, color: "rgba(255,255,255,0.3)" }}>
+                  Admin username: <strong style={{ color: "rgba(255,255,255,0.5)" }}>admin</strong>
+                </div>
               </div>
+            )}
+
+            {/* Default credentials */}
+            <div style={{
+              marginTop: 24, padding: "14px 16px",
+              background: "rgba(255,255,255,0.03)",
+              border: "1px solid rgba(255,255,255,0.07)",
+              borderRadius: 9, fontSize: 11, color: "rgba(255,255,255,0.3)", lineHeight: 1.9,
+            }}>
+              <strong style={{ color: "rgba(255,255,255,0.45)", display: "block", marginBottom: 4 }}>Default credentials</strong>
+              Username: <strong style={{ color: "rgba(255,255,255,0.5)" }}>admin</strong>
+              {"  ·  "}
+              Password: <strong style={{ color: "rgba(255,255,255,0.5)" }}>admin123</strong>
             </div>
-          )}
-          <div
-            style={{
-              marginTop: 16,
-              padding: "14px",
-              background: C.surface,
-              borderRadius: 8,
-              fontSize: 11,
-              color: C.muted,
-              lineHeight: 1.8,
-            }}
-          >
-            <strong
-              style={{ color: C.text, display: "block", marginBottom: 4 }}
-            >
-              Default credentials:
-            </strong>
-            Username: <strong>admin</strong> · Password:{" "}
-            <strong>admin123</strong>
-          </div>
-          <div
-            style={{
-              marginTop: 16,
-              padding: "12px 14px",
-              background: C.dark,
-              borderRadius: 8,
-              textAlign: "center",
-            }}
-          >
-            <div style={{ fontSize: 10, color: "#4B5563", letterSpacing: 1, textTransform: "uppercase", marginBottom: 4 }}>
-              Every Good Development Starts With A Good Foundation
-            </div>
-            {(company.phone || company.email) && (
-              <div style={{ fontSize: 11, color: "#6B7280" }}>
-                {company.phone && <span>📞 {company.phone}</span>}
-                {company.phone && company.email && <span style={{ margin: "0 8px", color: "#374151" }}>·</span>}
-                {company.email && <span>✉ {company.email}</span>}
+
+            {/* Address */}
+            {company.address && (
+              <div style={{ marginTop: 14, textAlign: "center", fontSize: 11, color: "rgba(255,255,255,0.15)" }}>
+                {company.address}{company.city ? ", " + company.city : ""}
               </div>
             )}
           </div>
@@ -6046,7 +6192,60 @@ export default function App() {
         flexDirection: "column",
       }}
     >
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=Barlow+Condensed:wght@600;700;800&display=swap');*{box-sizing:border-box;}input:focus,select:focus{border-color:${C.red}!important;box-shadow:0 0 0 3px rgba(140,20,20,0.08);} @keyframes slideIn{from{opacity:0;transform:translateX(40px);}to{opacity:1;transform:translateX(0);}} @media print{
+      <style>{`
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Barlow+Condensed:wght@500;600;700;800;900&display=swap');
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:${C.surface};font-family:'DM Sans',sans-serif;}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar{width:4px;height:4px;}
+::-webkit-scrollbar-track{background:transparent;}
+::-webkit-scrollbar-thumb{background:#2A2F42;border-radius:99px;}
+::-webkit-scrollbar-thumb:hover{background:#3D4460;}
+
+/* ── Focus ── */
+input:focus,select:focus,textarea:focus{border-color:${C.red}!important;box-shadow:0 0 0 3px rgba(140,20,20,0.1)!important;outline:none!important;}
+
+/* ── Keyframes ── */
+@keyframes fadeUp{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:translateY(0)}}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+@keyframes slideIn{from{opacity:0;transform:translateX(40px)}to{opacity:1;transform:translateX(0)}}
+@keyframes slideInLeft{from{opacity:0;transform:translateX(-16px)}to{opacity:1;transform:translateX(0)}}
+@keyframes scaleIn{from{opacity:0;transform:scale(0.94)}to{opacity:1;transform:scale(1)}}
+@keyframes pulseRing{0%,100%{transform:scale(1);opacity:0.45}50%{transform:scale(1.14);opacity:0.08}}
+@keyframes glowPulse{0%,100%{box-shadow:0 0 20px rgba(140,20,20,0.25)}50%{box-shadow:0 0 44px rgba(140,20,20,0.55)}}
+@keyframes shimmerBar{0%{background-position:-200% center}100%{background-position:200% center}}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-7px)}}
+@keyframes bounce{0%,80%,100%{transform:scale(0.6);opacity:0.5}40%{transform:scale(1);opacity:1}}
+@keyframes scanLine{0%{top:-8%}100%{top:108%}}
+@keyframes revealBar{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+@keyframes countIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+
+/* ── Interactive hover classes ── */
+.kpi-hover{transition:transform 0.2s ease,box-shadow 0.2s ease!important;}
+.kpi-hover:hover{transform:translateY(-3px)!important;box-shadow:0 12px 40px rgba(0,0,0,0.1)!important;}
+.nav-item{transition:all 0.15s ease!important;}
+.nav-item:hover:not(.nav-active){background:rgba(140,20,20,0.09)!important;color:#CBD5E1!important;}
+.quick-btn:hover{background:rgba(140,20,20,0.14)!important;color:#E2E8F0!important;}
+.btn-primary{transition:all 0.18s ease!important;}
+.btn-primary:hover{background:${C.redHover}!important;box-shadow:0 6px 24px rgba(140,20,20,0.42)!important;transform:translateY(-1px)!important;}
+.btn-ghost{transition:all 0.18s ease!important;}
+.btn-ghost:hover{background:rgba(15,19,32,0.06)!important;border-color:#94A3B8!important;color:${C.text}!important;}
+.btn-outline{transition:all 0.18s ease!important;}
+.btn-outline:hover{background:${C.red}!important;color:#fff!important;box-shadow:0 4px 14px rgba(140,20,20,0.35)!important;}
+.card-lift{transition:transform 0.2s ease,box-shadow 0.2s ease!important;}
+.card-lift:hover{transform:translateY(-2px)!important;box-shadow:0 14px 44px rgba(0,0,0,0.08)!important;}
+.stat-tile{transition:all 0.18s ease!important;cursor:pointer;}
+.stat-tile:hover{background:${C.red}!important;color:#fff!important;border-color:${C.red}!important;transform:translateY(-1px)!important;box-shadow:0 8px 24px rgba(140,20,20,0.3)!important;}
+.stat-tile:hover *{color:#fff!important;}
+.header-btn{transition:all 0.15s ease!important;}
+.header-btn:hover{background:rgba(255,255,255,0.08)!important;color:#E2E8F0!important;}
+.logout-btn:hover{background:rgba(140,20,20,0.2)!important;border-color:#8C1414!important;color:#fca5a5!important;}
+.topbar-users:hover{background:rgba(255,255,255,0.06)!important;border-color:#334155!important;color:#CBD5E1!important;}
+
+/* ── Print ── */
+@media print{
   .np{display:none!important;}
   @page{margin:18mm 18mm 22mm 18mm;size:A4;}
   body{print-color-adjust:exact;-webkit-print-color-adjust:exact;}
@@ -6056,213 +6255,152 @@ export default function App() {
   tr{page-break-inside:avoid;page-break-after:auto;}
   thead{display:table-header-group;}
   tfoot{display:table-footer-group;}
-}`}</style>
+}
+`}</style>
 
       {/* TOPBAR */}
       <header
         className="np"
         style={{
-          height: 54,
+          height: 60,
           background: C.dark,
           display: "flex",
           alignItems: "center",
-          padding: "0 18px",
+          padding: "0 20px",
           gap: 14,
           position: "sticky",
           top: 0,
           zIndex: 200,
-          borderBottom: "1px solid #1E2130",
+          borderBottom: `1px solid ${C.sidebarBorder}`,
           flexShrink: 0,
+          boxShadow: "0 2px 24px rgba(0,0,0,0.4)",
         }}
       >
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 10,
-            width: W - 18,
-            flexShrink: 0,
-            overflow: "hidden",
-            transition: "width 0.2s",
-          }}
-        >
-          <div
-            style={{
-              width: 32,
-              height: 32,
-              background: C.red,
-              borderRadius: 6,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              flexShrink: 0,
-              overflow: "hidden",
-            }}
-          >
+        {/* Bottom accent line */}
+        <div style={{
+          position: "absolute", bottom: 0, left: 0, right: 0, height: 1,
+          background: `linear-gradient(90deg,${C.red}44,${C.red}88 30%,${C.red}44 70%,transparent)`,
+        }}/>
+
+        {/* Logo + Company name zone */}
+        <div style={{
+          display: "flex", alignItems: "center", gap: 10,
+          width: W - 18, flexShrink: 0, overflow: "hidden", transition: "width 0.25s",
+        }}>
+          <div style={{
+            width: 34, height: 34,
+            background: `linear-gradient(135deg,${C.red} 0%,${C.redDeep} 100%)`,
+            borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center",
+            flexShrink: 0, overflow: "hidden",
+            boxShadow: `0 3px 14px ${C.redGlow}`,
+          }}>
             {company.logoUrl ? (
-              <img
-                src={company.logoUrl}
-                alt="Logo"
-                style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                onError={(e) => {
-                  e.target.style.display = "none";
-                }}
-              />
+              <img src={company.logoUrl} alt="Logo" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e) => { e.target.style.display = "none"; }}/>
             ) : (
-              <span
-                style={{
-                  color: "white",
-                  fontSize: 13,
-                  fontWeight: 900,
-                  fontFamily: "'Barlow Condensed',sans-serif",
-                }}
-              >
-                MC
-              </span>
+              <span style={{ color: "#fff", fontSize: 13, fontWeight: 900, fontFamily: "'Barlow Condensed',sans-serif", letterSpacing: 0.5 }}>MC</span>
             )}
           </div>
           {side && (
             <div style={{ overflow: "hidden", whiteSpace: "nowrap" }}>
-              <div
-                style={{
-                  fontSize: 12,
-                  fontWeight: 800,
-                  color: C.white,
-                  letterSpacing: 0.8,
-                  fontFamily: "'Barlow Condensed',sans-serif",
-                  lineHeight: 1.1,
-                }}
-              >
-                {(company.name || "Mapitsi Civil")
-                  .split(" ")
-                  .slice(0, 2)
-                  .join(" ")
-                  .toUpperCase()}
+              <div style={{
+                fontSize: 12, fontWeight: 800, color: "#E2E8F0",
+                letterSpacing: 1, fontFamily: "'Barlow Condensed',sans-serif", lineHeight: 1.1,
+              }}>
+                {(company.name || "Mapitsi Civil").split(" ").slice(0, 2).join(" ").toUpperCase()}
               </div>
-              <div
-                style={{
-                  fontSize: 9,
-                  color: "#4B5563",
-                  letterSpacing: 1.2,
-                  textTransform: "uppercase",
-                }}
-              >
+              <div style={{ fontSize: 9, color: "#374151", letterSpacing: 1.4, textTransform: "uppercase" }}>
                 {company.tagline || "Asset Management"}
               </div>
             </div>
           )}
         </div>
+
+        {/* Sidebar toggle */}
         <button
           onClick={() => setSide(!side)}
+          className="header-btn"
           style={{
-            background: "none",
-            border: "none",
-            color: "#4B5563",
-            fontSize: 15,
-            cursor: "pointer",
-            padding: 6,
-            borderRadius: 5,
+            background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)",
+            borderRadius: 7, color: "#6B7280",
+            fontSize: 14, cursor: "pointer", padding: "6px 8px",
+            display: "flex", alignItems: "center", justifyContent: "center",
           }}
         >
           ☰
         </button>
-        <div style={{ flex: 1 }} />
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+
+        <div style={{ flex: 1 }}/>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          {/* Critical alert pill */}
           {allAlerts.filter((a) => a.severity === "critical").length > 0 && (
             <button
               onClick={() => setTab("Alerts")}
               style={{
-                background: C.red,
-                color: "white",
-                borderRadius: 5,
-                padding: "3px 10px",
-                fontSize: 11,
-                fontWeight: 700,
-                letterSpacing: 0.3,
-                border: "none",
-                cursor: "pointer",
+                background: `linear-gradient(135deg,${C.red},${C.redDeep})`,
+                color: "#fff", borderRadius: 6,
+                padding: "5px 12px", fontSize: 11, fontWeight: 700,
+                letterSpacing: 0.3, border: "none", cursor: "pointer",
                 fontFamily: "'DM Sans',sans-serif",
+                boxShadow: `0 3px 14px ${C.redGlow}`,
+                animation: "glowPulse 2.5s ease-in-out infinite",
               }}
             >
-              ⚑ {allAlerts.filter((a) => a.severity === "critical").length}{" "}
-              Critical Alert
-              {allAlerts.filter((a) => a.severity === "critical").length > 1
-                ? "s"
-                : ""}
+              ⚑ {allAlerts.filter((a) => a.severity === "critical").length} Critical
             </button>
           )}
-          <div
-            style={{
-              fontSize: 11,
-              color: "#4B5563",
-              textAlign: "right",
-              lineHeight: 1.5,
-            }}
-          >
-            <div style={{ color: "#6B7280" }}>
-              {new Date().toLocaleDateString("en-ZA", {
-                day: "numeric",
-                month: "short",
-                year: "numeric",
-              })}
+
+          {/* Date / portal label */}
+          <div style={{ fontSize: 11, color: "#374151", textAlign: "right", lineHeight: 1.6 }}>
+            <div style={{ color: "#4B5563", fontWeight: 500 }}>
+              {new Date().toLocaleDateString("en-ZA", { day: "numeric", month: "short", year: "numeric" })}
             </div>
-            <div style={{ fontSize: 9, letterSpacing: 0.5 }}>
-              PLANT MANAGER PORTAL
+            <div style={{ fontSize: 9, letterSpacing: 0.8, textTransform: "uppercase", color: "#2D3347" }}>
+              Plant Manager Portal
             </div>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            {can(currentUser, "canManageUsers") && (
-              <button
-                onClick={() => setShowUserMgmt(true)}
-                style={{
-                  background: "none",
-                  border: "1px solid #2A2F40",
-                  borderRadius: 6,
-                  color: "#6B7280",
-                  fontSize: 11,
-                  cursor: "pointer",
-                  padding: "5px 10px",
-                  fontFamily: "'DM Sans',sans-serif",
-                  fontWeight: 600,
-                }}
-              >
-                👥 Users
-              </button>
-            )}
-            <div style={{ textAlign: "right", lineHeight: 1.4 }}>
-              <div style={{ fontSize: 11, color: "#9CA3AF", fontWeight: 600 }}>
-                {currentUser.name}
-              </div>
-              <div
-                style={{
-                  fontSize: 9,
-                  color: "#4B5563",
-                  letterSpacing: 0.5,
-                  textTransform: "uppercase",
-                }}
-              >
-                {ROLES[currentUser.role]}
-              </div>
-            </div>
-            <div
-              onClick={doLogout}
-              title="Sign out"
+
+          {/* Divider */}
+          <div style={{ width: 1, height: 28, background: "rgba(255,255,255,0.06)" }}/>
+
+          {/* Users button */}
+          {can(currentUser, "canManageUsers") && (
+            <button
+              onClick={() => setShowUserMgmt(true)}
+              className="topbar-users"
               style={{
-                width: 30,
-                height: 30,
-                background: "#1E2130",
-                borderRadius: "50%",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: 14,
-                color: "#6B7280",
-                border: "1px solid #2A2F40",
-                cursor: "pointer",
+                background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
+                borderRadius: 7, color: "#6B7280", fontSize: 11, cursor: "pointer",
+                padding: "6px 12px", fontFamily: "'DM Sans',sans-serif", fontWeight: 600,
+                display: "flex", alignItems: "center", gap: 5, transition: "all 0.15s",
               }}
             >
-              ↪
+              <span style={{ fontSize: 13 }}>👥</span> Users
+            </button>
+          )}
+
+          {/* User info */}
+          <div style={{ textAlign: "right", lineHeight: 1.4 }}>
+            <div style={{ fontSize: 12, color: "#94A3B8", fontWeight: 600 }}>{currentUser.name}</div>
+            <div style={{ fontSize: 9, color: "#374151", letterSpacing: 0.6, textTransform: "uppercase" }}>
+              {ROLES[currentUser.role]}
             </div>
+          </div>
+
+          {/* Avatar / logout */}
+          <div
+            onClick={doLogout}
+            title="Sign out"
+            className="logout-btn"
+            style={{
+              width: 34, height: 34, background: "rgba(255,255,255,0.05)",
+              borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: 15, color: "#4B5563",
+              border: "1px solid rgba(255,255,255,0.08)", cursor: "pointer",
+              transition: "all 0.18s",
+            }}
+          >
+            ↪
           </div>
         </div>
       </header>
@@ -6275,37 +6413,30 @@ export default function App() {
             width: W,
             background: C.sidebar,
             flexShrink: 0,
-            transition: "width 0.2s",
+            transition: "width 0.25s cubic-bezier(0.4,0,0.2,1)",
             overflow: "hidden",
-            borderRight: "1px solid #1A1D28",
+            borderRight: `1px solid ${C.sidebarBorder}`,
             display: "flex",
             flexDirection: "column",
+            boxShadow: "4px 0 24px rgba(0,0,0,0.3)",
           }}
         >
-          <nav style={{ flex: 1, padding: "8px", overflowY: "auto" }}>
+          <nav style={{ flex: 1, padding: "10px 8px 10px", overflowY: "auto" }}>
             {NAV_SECTIONS.map((section) => (
-              <div key={section.label} style={{ marginBottom: 4 }}>
+              <div key={section.label} style={{ marginBottom: 2 }}>
                 {side ? (
-                  <div
-                    style={{
-                      fontSize: 8.5,
-                      fontWeight: 700,
-                      color: "#2A2F42",
-                      textTransform: "uppercase",
-                      letterSpacing: 1.5,
-                      padding: "10px 10px 4px",
-                    }}
-                  >
+                  <div style={{
+                    fontSize: 9, fontWeight: 700, color: "#252B3E",
+                    textTransform: "uppercase", letterSpacing: 1.8,
+                    padding: "12px 10px 5px",
+                    borderTop: "1px solid rgba(255,255,255,0.03)",
+                  }}>
                     {section.label}
                   </div>
                 ) : (
-                  <div
-                    style={{
-                      height: 1,
-                      background: "#1A1D28",
-                      margin: "6px 4px 4px",
-                    }}
-                  />
+                  <div style={{
+                    height: 1, background: "rgba(255,255,255,0.03)", margin: "7px 4px 5px",
+                  }}/>
                 )}
                 {section.ids.map((id) => {
                   const n = NAV.find((x) => x.id === id);
@@ -6316,54 +6447,51 @@ export default function App() {
                       key={n.id}
                       onClick={() => setTab(n.id)}
                       title={NAV_LABELS[n.id]}
+                      className={`nav-item${a ? " nav-active" : ""}`}
                       style={{
                         width: "100%",
                         display: "flex",
                         alignItems: "center",
                         gap: 9,
-                        padding: side ? "7px 10px" : "8px",
-                        borderRadius: 6,
+                        padding: side ? "7px 10px" : "8px 0",
+                        justifyContent: side ? "flex-start" : "center",
+                        borderRadius: 8,
                         border: "none",
                         cursor: "pointer",
                         marginBottom: 1,
                         textAlign: "left",
-                        background: a ? "rgba(140,20,20,0.2)" : "transparent",
-                        color: a ? C.white : "#5B6378",
-                        transition: "all 0.15s",
+                        background: a
+                          ? "linear-gradient(90deg,rgba(140,20,20,0.28) 0%,rgba(140,20,20,0.1) 100%)"
+                          : "transparent",
+                        color: a ? "#F8FAFC" : "#4A5578",
                         position: "relative",
                         fontFamily: "'DM Sans',sans-serif",
                       }}
                     >
+                      {/* Active indicator bar */}
                       {a && (
-                        <span
-                          style={{
-                            position: "absolute",
-                            left: 0,
-                            top: "15%",
-                            height: "70%",
-                            width: 3,
-                            background: C.red,
-                            borderRadius: "0 2px 2px 0",
-                          }}
-                        />
+                        <span style={{
+                          position: "absolute", left: 0, top: "12%",
+                          height: "76%", width: 3,
+                          background: `linear-gradient(180deg,${C.red},${C.redDeep})`,
+                          borderRadius: "0 3px 3px 0",
+                          boxShadow: `0 0 10px ${C.redGlow}`,
+                        }}/>
                       )}
-                      <span
-                        style={{
-                          fontSize: 13,
-                          flexShrink: 0,
-                          opacity: a ? 1 : 0.45,
-                        }}
-                      >
+                      {/* Icon */}
+                      <span style={{
+                        fontSize: 13, flexShrink: 0,
+                        opacity: a ? 1 : 0.4,
+                        filter: a ? `drop-shadow(0 0 4px ${C.redGlow})` : "none",
+                        transition: "all 0.15s",
+                      }}>
                         {n.ico}
                       </span>
                       {side && (
-                        <span
-                          style={{
-                            fontSize: 11.5,
-                            fontWeight: a ? 700 : 400,
-                            whiteSpace: "nowrap",
-                          }}
-                        >
+                        <span style={{
+                          fontSize: 12, fontWeight: a ? 600 : 400,
+                          whiteSpace: "nowrap", letterSpacing: 0.1,
+                        }}>
                           {NAV_LABELS[n.id]}
                         </span>
                       )}
@@ -6373,20 +6501,18 @@ export default function App() {
               </div>
             ))}
           </nav>
+
+          {/* Quick Entry */}
           {side && (
-            <div
-              style={{ padding: "14px 16px", borderTop: "1px solid #1A1D28" }}
-            >
-              <div
-                style={{
-                  fontSize: 9,
-                  color: "#2D3347",
-                  textTransform: "uppercase",
-                  letterSpacing: 1.2,
-                  marginBottom: 6,
-                  fontWeight: 700,
-                }}
-              >
+            <div style={{
+              padding: "14px 12px 18px",
+              borderTop: `1px solid ${C.sidebarBorder}`,
+              background: "rgba(0,0,0,0.2)",
+            }}>
+              <div style={{
+                fontSize: 9, color: "#252B3E", textTransform: "uppercase",
+                letterSpacing: 1.6, marginBottom: 8, fontWeight: 700, paddingLeft: 4,
+              }}>
                 Quick Entry
               </div>
               {[
@@ -6398,26 +6524,20 @@ export default function App() {
                 <button
                   key={m}
                   onClick={() => setModal(m)}
+                  className="quick-btn"
                   style={{
-                    display: "block",
-                    width: "100%",
-                    textAlign: "left",
-                    padding: "6px 8px",
-                    marginBottom: 1,
-                    background: "none",
-                    border: "none",
-                    color: "#4B5563",
-                    fontSize: 11,
-                    cursor: "pointer",
-                    borderRadius: 5,
-                    fontFamily: "'DM Sans',sans-serif",
-                    fontWeight: 500,
+                    display: "flex", alignItems: "center", gap: 6,
+                    width: "100%", textAlign: "left",
+                    padding: "7px 8px", marginBottom: 2,
+                    background: "none", border: "none",
+                    color: "#374151", fontSize: 11.5,
+                    cursor: "pointer", borderRadius: 7,
+                    fontFamily: "'DM Sans',sans-serif", fontWeight: 500,
+                    transition: "all 0.15s",
                   }}
                 >
-                  <span
-                    style={{ color: C.red, marginRight: 3, fontWeight: 800 }}
-                  ></span>
-                  {l}
+                  <span style={{ color: C.red, fontWeight: 900, fontSize: 13 }}>+</span>
+                  {l.replace("＋ ", "")}
                 </button>
               ))}
             </div>
@@ -6425,23 +6545,24 @@ export default function App() {
         </aside>
 
         {/* MAIN */}
-        <main style={{ flex: 1, overflow: "auto", padding: "26px 28px" }}>
+        <main style={{ flex: 1, overflow: "auto", padding: "28px 30px", background: C.surface }}>
           {/* DASHBOARD */}
           {tab === "Dashboard" && (
-            <div>
+            <div style={{ animation:"fadeUp 0.3s ease both" }}>
               {/* ── HEADER ROW ── */}
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20, flexWrap:"wrap", gap:10 }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:22, flexWrap:"wrap", gap:10 }}>
                 <div>
-                  <div style={{ fontSize:22, fontWeight:800, color:C.text, letterSpacing:-0.5, fontFamily:"'Barlow Condensed',sans-serif", lineHeight:1.1 }}>
+                  <div style={{ fontSize:11, color:C.muted, fontWeight:600, textTransform:"uppercase", letterSpacing:2, marginBottom:4 }}>
+                    {company.name||"Mapitsi Civil Works"} · {new Date().toLocaleDateString("en-ZA",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}
+                  </div>
+                  <div style={{ fontSize:26, fontWeight:900, color:C.text, letterSpacing:-0.5, fontFamily:"'Barlow Condensed',sans-serif", lineHeight:1, display:"flex", alignItems:"center", gap:12 }}>
                     OPERATIONAL DASHBOARD
-                    <span style={{ fontSize:13, fontWeight:400, color:C.muted, marginLeft:14, fontFamily:"'DM Sans',sans-serif", letterSpacing:0 }}>
-                      Real-time overview · {company.name||"Mapitsi Civil Works"} · {new Date().toLocaleDateString("en-ZA",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}
-                    </span>
+                    <span style={{ display:"inline-block", width:8, height:8, borderRadius:"50%", background:C.success, boxShadow:`0 0 8px ${C.success}` }}/>
                   </div>
                 </div>
                 <div style={{ display:"flex", gap:8 }}>
                   {allAlerts.filter(a=>a.severity==="critical").length>0&&(
-                    <button onClick={()=>setTab("Alerts")} style={{ background:C.red, color:"white", borderRadius:7, padding:"7px 14px", fontSize:12, fontWeight:700, border:"none", cursor:"pointer", fontFamily:"'DM Sans',sans-serif" }}>
+                    <button onClick={()=>setTab("Alerts")} style={{ background:`linear-gradient(135deg,${C.red},${C.redDeep})`, color:"#fff", borderRadius:8, padding:"7px 16px", fontSize:12, fontWeight:700, border:"none", cursor:"pointer", fontFamily:"'DM Sans',sans-serif", boxShadow:`0 4px 16px ${C.redGlow}` }}>
                       ⚑ {allAlerts.filter(a=>a.severity==="critical").length} Critical Alert{allAlerts.filter(a=>a.severity==="critical").length>1?"s":""}
                     </button>
                   )}
@@ -6468,7 +6589,7 @@ export default function App() {
               <div style={{ display:"grid", gridTemplateColumns:"2fr 1fr", gap:16, marginBottom:16 }}>
 
                 {/* COMBINED 6-MONTH COST TREND */}
-                <div style={{ background:C.white, borderRadius:10, border:`1px solid ${C.border}`, overflow:"hidden", boxShadow:"0 1px 4px rgba(0,0,0,0.04)" }}>
+                <div className="card-lift" style={{ background:C.white, borderRadius:12, border:`1px solid ${C.border}`, overflow:"hidden", boxShadow:"0 2px 12px rgba(0,0,0,0.05)" }}>
                   <div style={{ padding:"14px 20px 10px", borderBottom:`1px solid ${C.border}`, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
                     <div>
                       <div style={{ fontSize:13, fontWeight:700, color:C.text }}>Operating Cost Trend</div>
@@ -6525,7 +6646,7 @@ export default function App() {
                 </div>
 
                 {/* FLEET STATUS DONUT */}
-                <div style={{ background:C.white, borderRadius:10, border:`1px solid ${C.border}`, overflow:"hidden", boxShadow:"0 1px 4px rgba(0,0,0,0.04)" }}>
+                <div className="card-lift" style={{ background:C.white, borderRadius:12, border:`1px solid ${C.border}`, overflow:"hidden", boxShadow:"0 2px 12px rgba(0,0,0,0.05)" }}>
                   <div style={{ padding:"14px 20px 10px", borderBottom:`1px solid ${C.border}` }}>
                     <div style={{ fontSize:13, fontWeight:700, color:C.text }}>Fleet Status</div>
                     <div style={{ fontSize:11, color:C.muted }}>Asset distribution</div>
@@ -6586,7 +6707,7 @@ export default function App() {
               <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:16, marginBottom:16 }}>
 
                 {/* FUEL L/COST BY MONTH */}
-                <div style={{ background:C.white, borderRadius:10, border:`1px solid ${C.border}`, boxShadow:"0 1px 4px rgba(0,0,0,0.04)" }}>
+                <div className="card-lift" style={{ background:C.white, borderRadius:12, border:`1px solid ${C.border}`, boxShadow:"0 2px 12px rgba(0,0,0,0.05)" }}>
                   <div style={{ padding:"14px 18px 10px", borderBottom:`1px solid ${C.border}` }}>
                     <div style={{ fontSize:13, fontWeight:700, color:C.text }}>Fuel Consumption</div>
                     <div style={{ fontSize:11, color:C.muted }}>Litres — last 6 months</div>
@@ -6625,7 +6746,7 @@ export default function App() {
                 </div>
 
                 {/* DEPRECIATION HEALTH BARS */}
-                <div style={{ background:C.white, borderRadius:10, border:`1px solid ${C.border}`, boxShadow:"0 1px 4px rgba(0,0,0,0.04)" }}>
+                <div className="card-lift" style={{ background:C.white, borderRadius:12, border:`1px solid ${C.border}`, boxShadow:"0 2px 12px rgba(0,0,0,0.05)" }}>
                   <div style={{ padding:"14px 18px 10px", borderBottom:`1px solid ${C.border}` }}>
                     <div style={{ fontSize:13, fontWeight:700, color:C.text }}>Depreciation Health</div>
                     <div style={{ fontSize:11, color:C.muted }}>Per asset — % written off</div>
@@ -6656,7 +6777,7 @@ export default function App() {
                 </div>
 
                 {/* LABOUR HOURS TREND */}
-                <div style={{ background:C.white, borderRadius:10, border:`1px solid ${C.border}`, boxShadow:"0 1px 4px rgba(0,0,0,0.04)" }}>
+                <div className="card-lift" style={{ background:C.white, borderRadius:12, border:`1px solid ${C.border}`, boxShadow:"0 2px 12px rgba(0,0,0,0.05)" }}>
                   <div style={{ padding:"14px 18px 10px", borderBottom:`1px solid ${C.border}` }}>
                     <div style={{ fontSize:13, fontWeight:700, color:C.text }}>Labour Hours</div>
                     <div style={{ fontSize:11, color:C.muted }}>Hours worked — last 6 months</div>
@@ -6761,7 +6882,7 @@ export default function App() {
               )}
 
               {/* ── QUICK STATS MINI TILES ── */}
-              <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))", gap:10 }}>
+              <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(155px,1fr))", gap:10 }}>
                 {[
                   { l:"Fuel Records",    v:fuel.length,                                                           s:`${fuel.reduce((s,f)=>s+Number(f.litres||0),0).toFixed(0)} L total`,  c:C.warn,    ico:"⛽", t:"Fuel" },
                   { l:"Maintenance",     v:maint.length,                                                          s:fmt(maint.reduce((s,m)=>s+Number(m.cost||0),0)),                        c:"#7c3aed", ico:"⊙", t:"Maintenance" },
@@ -6773,17 +6894,16 @@ export default function App() {
                   { l:"Compliance",      v:compliance.filter(c=>c.expiryDate&&c.expiryDate<today()).length,        s:"expired documents",                                                    c:compliance.filter(c=>c.expiryDate&&c.expiryDate<today()).length>0?C.red:C.success, ico:"⊛", t:"Compliance" },
                   { l:"Purchase Orders", v:purchaseOrders.filter(p=>!["Fully Received","Cancelled"].includes(p.status)).length, s:"open / pending", c:C.muted, ico:"📦", t:"PurchaseOrders" },
                 ].map(s=>(
-                  <div key={s.l} onClick={()=>setTab(s.t)} style={{ background:C.white, borderRadius:8, padding:"11px 14px", border:`1px solid ${C.border}`, cursor:"pointer", position:"relative", overflow:"hidden", transition:"box-shadow 0.15s" }}
-                    onMouseEnter={e=>e.currentTarget.style.boxShadow="0 4px 12px rgba(0,0,0,0.1)"}
-                    onMouseLeave={e=>e.currentTarget.style.boxShadow=""}>
-                    <div style={{ position:"absolute", top:0, left:0, width:3, height:"100%", background:s.c }}/>
+                  <div key={s.l} onClick={()=>setTab(s.t)} className="stat-tile"
+                    style={{ background:C.white, borderRadius:10, padding:"13px 15px", border:`1px solid ${C.border}`, position:"relative", overflow:"hidden", boxShadow:"0 2px 8px rgba(0,0,0,0.04)" }}>
+                    <div style={{ position:"absolute", top:0, left:0, right:0, height:3, background:`linear-gradient(90deg,${s.c},${s.c}55)`, borderRadius:"10px 10px 0 0" }}/>
                     <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
                       <div>
-                        <div style={{ fontSize:9.5, color:C.muted, fontWeight:600, textTransform:"uppercase", letterSpacing:0.6, marginBottom:3 }}>{s.l}</div>
-                        <div style={{ fontSize:18, fontWeight:700, color:C.text, fontFamily:"'Barlow Condensed',sans-serif" }}>{s.v}</div>
-                        <div style={{ fontSize:10, color:C.mutedLt, marginTop:2 }}>{s.s}</div>
+                        <div style={{ fontSize:9, color:C.muted, fontWeight:700, textTransform:"uppercase", letterSpacing:0.8, marginBottom:5 }}>{s.l}</div>
+                        <div style={{ fontSize:20, fontWeight:800, color:C.text, fontFamily:"'Barlow Condensed',sans-serif", lineHeight:1 }}>{s.v}</div>
+                        <div style={{ fontSize:10, color:C.mutedLt, marginTop:4 }}>{s.s}</div>
                       </div>
-                      <div style={{ fontSize:16, opacity:0.1 }}>{s.ico}</div>
+                      <div style={{ width:28, height:28, borderRadius:7, background:`${s.c}16`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:13 }}>{s.ico}</div>
                     </div>
                   </div>
                 ))}
