@@ -10,7 +10,8 @@ import {
   Bell, Receipt, ClipboardCheck, HardHat, ArrowLeftRight,
   ShoppingCart, Sparkles, Map, Brain, QrCode, Settings as SettingsIcon,
   Hammer, Droplets, BarChart2, ScanLine, RefreshCw, DollarSign, Landmark,
-  ShieldAlert, Stethoscope, BadgePlus, CalendarCheck2, HeartPulse, IdCard, AlertCircle
+  ShieldAlert, Stethoscope, BadgePlus, CalendarCheck2, HeartPulse, IdCard, AlertCircle,
+  ShieldPlus, Siren, Ambulance, BriefcaseMedical, Banknote, FilePlus2, FileWarning, Bandage
 } from "lucide-react";
 
 const C = {
@@ -192,6 +193,8 @@ const MODULE_NAMES = {
   mcw_pos: "Purchase Orders",
   mcw_hirereqs: "Hire Requisitions",
   mcw_opfitness: "Operator Fitness",
+  mcw_insurance: "Insurance Register",
+  mcw_coid: "COID / IOD Register",
 };
 const COMPLIANCE_TYPES = [
   "Roadworthy Certificate",
@@ -241,8 +244,10 @@ const NAV = [
   { id: "Schedules",     ico: CalendarDays,     tip: "Scheduled maintenance — calendar view of upcoming service intervals" },
   { id: "Conditions",    ico: Activity,         tip: "Asset condition assessments — ratings, photos and history" },
   { id: "Incidents",     ico: AlertTriangle,    tip: "Incident log — breakdowns, accidents, near-misses and resolutions" },
+  { id: "COID",          ico: Siren,            tip: "COID / IOD Register — COIDA-compliant injury on duty register, W.Cl.2 reporting, days lost and claim tracking" },
   { id: "Suppliers",     ico: Building2,        tip: "Supplier register — service providers, parts suppliers and contractors" },
   { id: "Budgets",       ico: Wallet,           tip: "Budget management — department allocations and spend tracking" },
+  { id: "Insurance",     ico: ShieldPlus,       tip: "Insurance register — per-asset policies, plant all-risk, renewal alerts and claims log" },
   { id: "Hire",          ico: Truck,            tip: "Equipment hire — external plant hire agreements and costs" },
   { id: "HireReqs",      ico: ClipboardList,    tip: "Hire requisitions — formal request → approval → dispatch workflow" },
   { id: "Disposals",     ico: Trash2,           tip: "Asset disposals — decommissioned and written-off assets" },
@@ -315,6 +320,8 @@ const NAV_LABELS = {
   FleetMap: "Fleet Visual Map",
   AssetIntel: "Asset Intelligence",
   OpFitness: "Operator Fitness",
+  Insurance: "Insurance Register",
+  COID: "COID / IOD Register",
   Settings: "Settings",
 };
 const ROLES = {
@@ -1225,9 +1232,9 @@ const DEFAULT_SITES = [
 const NAV_SECTIONS = [
   { label: "Overview", ids: ["Dashboard"] },
   { label: "Assets", ids: ["Assets","Depreciation","Conditions","Warranties","Assignments","Disposals","Spares","Transfers","AssetTags"] },
-  { label: "Operations", ids: ["Maintenance","JobCards","Schedules","Fuel","FuelRecon","Incidents","Hire","HireReqs","PreOp"] },
+  { label: "Operations", ids: ["Maintenance","JobCards","Schedules","Fuel","FuelRecon","Incidents","COID","Hire","HireReqs","PreOp"] },
   { label: "People", ids: ["Employees", "Timesheets", "Leave", "OpFitness", "Projects"] },
-  { label: "Finance", ids: ["Budgets", "Compliance", "Reports", "SARSReport", "ProjectCost", "PurchaseOrders"] },
+  { label: "Finance", ids: ["Budgets", "Insurance", "Compliance", "Reports", "SARSReport", "ProjectCost", "PurchaseOrders"] },
   { label: "Intelligence", ids: ["Analytics", "AIAssist", "FleetMap", "AssetIntel", "AssetPL", "FuelRecon", "Utilisation", "Alerts", "AssetExpenses"] },
   { label: "System", ids: ["Suppliers","Contractors","AuditLog","Import","Settings"] },
 ];
@@ -3632,6 +3639,600 @@ function FleetMapTab({ assets, maint, fuel, incidents, conditions, transfers, pr
 }
 
 
+// ── INSURANCE REGISTER ───────────────────────────────────────────────────────
+const INS_TYPES = [
+  "Plant All Risk", "Comprehensive (Vehicle)", "Third Party Only", "Goods in Transit",
+  "Public Liability", "Employer's Liability", "Business Interruption",
+  "Accident / Injury Cover", "Marine / Transit", "Other"
+];
+const INS_PAYMENT = ["Annual", "Monthly", "Quarterly", "Once-off"];
+const INS_CLAIM_STATUS = ["Submitted", "Under Assessment", "Approved", "Rejected", "Paid", "Withdrawn"];
+
+function InsuranceTab({ insurancePolicies, setInsurancePolicies, assets, currentUser,
+  add, update, del, toast, can, fmt, today,
+  C, inp, Field, Row2, Btn, Card, Tbl, TR, Empty, KPI, Pill, PageTitle }) {
+
+  const blank = { assetId: "", policyType: "", insurer: "", policyNo: "", sumInsured: "", premium: "", paymentFrequency: "Annual", startDate: "", renewalDate: "", broker: "", brokerContact: "", excess: "", notes: "" };
+  const blankClaim = { policyId: "", claimNo: "", claimDate: "", description: "", claimAmount: "", status: "Submitted", settledAmount: "", settledDate: "", notes: "" };
+
+  const [form, setForm] = useState(blank);
+  const [showModal, setShowModal] = useState(false);
+  const [claimForm, setClaimForm] = useState(blankClaim);
+  const [showClaimModal, setShowClaimModal] = useState(false);
+  const [claims, setClaims] = useState([]);
+  const [filterType, setFilterType] = useState("all");
+  const [filterAsset, setFilterAsset] = useState("all");
+  const [view, setView] = useState("table");
+
+  const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
+  const setC = (k, v) => setClaimForm(p => ({ ...p, [k]: v }));
+
+  const assetName = id => { const a = assets.find(x => x.id === id); return a ? (a.name || a.fleet || id) : id; };
+
+  const polStatus = p => {
+    if (!p.renewalDate) return "unknown";
+    const days = Math.ceil((new Date(p.renewalDate) - new Date(today())) / 86400000);
+    if (days < 0) return "expired";
+    if (days <= 30) return "expiring";
+    return "active";
+  };
+
+  const statusColor = s => ({ active: "#16a34a", expiring: "#d97706", expired: C.red, unknown: C.muted }[s] || C.muted);
+  const statusLabel = s => ({ active: "Active", expiring: "Expiring Soon", expired: "Expired", unknown: "No Renewal Date" }[s] || s);
+
+  const filtered = insurancePolicies.filter(p => {
+    if (filterType !== "all" && p.policyType !== filterType) return false;
+    if (filterAsset !== "all" && p.assetId !== filterAsset) return false;
+    return true;
+  }).map(p => ({ ...p, _status: polStatus(p) }));
+
+  const totalSumInsured = insurancePolicies.reduce((s, p) => s + Number(p.sumInsured || 0), 0);
+  const totalPremium = insurancePolicies.reduce((s, p) => {
+    const pr = Number(p.premium || 0);
+    return s + (p.paymentFrequency === "Monthly" ? pr * 12 : p.paymentFrequency === "Quarterly" ? pr * 4 : pr);
+  }, 0);
+  const expiredCount = insurancePolicies.filter(p => polStatus(p) === "expired").length;
+  const expiringCount = insurancePolicies.filter(p => polStatus(p) === "expiring").length;
+
+  const fmt2 = v => v ? `R ${Number(v).toLocaleString("en-ZA", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "—";
+
+  const save = () => {
+    if (!form.policyType || !form.insurer) return toast("Policy type and insurer are required", "error");
+    if (form.id) { update("mcw_insurance", setInsurancePolicies, insurancePolicies, form.id, form); toast("Policy updated"); }
+    else { add("mcw_insurance", setInsurancePolicies, insurancePolicies, form); toast("Policy added"); }
+    setShowModal(false); setForm(blank);
+  };
+
+  const saveClaim = () => {
+    if (!claimForm.policyId || !claimForm.description) return toast("Policy and description required", "error");
+    if (claimForm.id) { update("mcw_insurance", setInsurancePolicies, insurancePolicies, claimForm.id, claimForm); toast("Claim updated"); }
+    else { add("mcw_insurance", setInsurancePolicies, insurancePolicies, claimForm); toast("Claim recorded"); }
+    setShowClaimModal(false); setClaimForm(blankClaim);
+  };
+
+  return (
+    <div>
+      <PageTitle
+        title="INSURANCE REGISTER"
+        sub="Per-asset insurance policies — plant all-risk, vehicle, liability and renewals"
+        action={can(currentUser, "canAdd") && (
+          <div style={{ display: "flex", gap: 8 }}>
+            <Btn variant="outline" size="sm" onClick={() => { setClaimForm(blankClaim); setShowClaimModal(true); }}><FilePlus2 size={13} strokeWidth={1.75} style={{ marginRight: 5 }} />Log Claim</Btn>
+            <Btn onClick={() => { setForm(blank); setShowModal(true); }}><ShieldPlus size={13} strokeWidth={1.75} style={{ marginRight: 5 }} />Add Policy</Btn>
+          </div>
+        )}
+      />
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 12, marginBottom: 22 }}>
+        <KPI label="Total Policies" value={insurancePolicies.length} icon={ShieldPlus} color={C.info} sub="all policies" />
+        <KPI label="Sum Insured" value={fmt2(totalSumInsured)} icon={Banknote} color={C.text} sub="total cover" />
+        <KPI label="Annual Premium" value={fmt2(totalPremium)} icon={Banknote} color="#7c3aed" sub="annualised" />
+        <KPI label="Expiring Soon" value={expiringCount} icon={FileWarning} color="#d97706" sub="within 30 days" />
+        <KPI label="Expired / Lapsed" value={expiredCount} icon={ShieldAlert} color={C.red} sub="action required" />
+      </div>
+
+      {expiredCount > 0 && (
+        <div style={{ background: "#FEF2F2", border: `1px solid ${C.redBorder}`, borderRadius: 10, padding: "12px 18px", marginBottom: 18, display: "flex", gap: 12, alignItems: "flex-start" }}>
+          <ShieldAlert size={18} color={C.red} style={{ marginTop: 1, flexShrink: 0 }} />
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 13, color: C.red }}>Lapsed Policies — Immediate Action Required</div>
+            <div style={{ fontSize: 11.5, color: "#991b1b", marginTop: 3, lineHeight: 1.5 }}>
+              {insurancePolicies.filter(p => polStatus(p) === "expired").map(p => `${p.insurer} — ${p.policyType}${p.assetId ? ` (${assetName(p.assetId)})` : ""}`).join(" · ")}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div style={{ display: "flex", gap: 10, marginBottom: 18, flexWrap: "wrap", alignItems: "center" }}>
+        <select value={filterType} onChange={e => setFilterType(e.target.value)} style={{ ...inp, width: 200 }}>
+          <option value="all">All Policy Types</option>
+          {INS_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+        </select>
+        <select value={filterAsset} onChange={e => setFilterAsset(e.target.value)} style={{ ...inp, width: 200 }}>
+          <option value="all">All Assets</option>
+          {assets.map(a => <option key={a.id} value={a.id}>{a.name || a.fleet || a.id}</option>)}
+        </select>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+          <Btn variant={view === "table" ? "primary" : "outline"} size="sm" onClick={() => setView("table")}>Table</Btn>
+          <Btn variant={view === "cards" ? "primary" : "outline"} size="sm" onClick={() => setView("cards")}>Cards</Btn>
+        </div>
+      </div>
+
+      {filtered.length === 0 && <Empty icon={ShieldPlus} title="No policies on record" desc="Add your insurance policies to track cover, renewals and claims for every asset." />}
+
+      {view === "table" && filtered.length > 0 && (
+        <Tbl heads={["Asset / General", "Policy Type", "Insurer", "Policy No.", "Sum Insured", "Annual Premium", "Renewal Date", "Status", ""]}>
+          {filtered.map(p => {
+            const days = p.renewalDate ? Math.ceil((new Date(p.renewalDate) - new Date(today())) / 86400000) : null;
+            return (
+              <TR key={p.id}>
+                <td style={{ padding: "10px 12px", fontSize: 12, color: C.text }}>{p.assetId ? assetName(p.assetId) : <span style={{ color: C.muted, fontStyle: "italic" }}>General</span>}</td>
+                <td style={{ padding: "10px 12px", fontSize: 12, color: C.text, fontWeight: 600 }}>{p.policyType}</td>
+                <td style={{ padding: "10px 12px", fontSize: 12, color: C.text }}>{p.insurer}</td>
+                <td style={{ padding: "10px 12px", fontSize: 11, color: C.muted }}>{p.policyNo || "—"}</td>
+                <td style={{ padding: "10px 12px", fontSize: 12, color: C.text }}>{fmt2(p.sumInsured)}</td>
+                <td style={{ padding: "10px 12px", fontSize: 11, color: C.muted }}>
+                  {p.premium ? `${fmt2(p.premium)} / ${p.paymentFrequency || "Annual"}` : "—"}
+                </td>
+                <td style={{ padding: "10px 12px", fontSize: 11, color: p._status === "expired" ? C.red : p._status === "expiring" ? "#d97706" : C.muted }}>
+                  {p.renewalDate ? (
+                    <>{fmt(p.renewalDate)}{days !== null && <span style={{ fontSize: 10, marginLeft: 5 }}>({days < 0 ? `${Math.abs(days)}d ago` : `${days}d`})</span>}</>
+                  ) : "—"}
+                </td>
+                <td style={{ padding: "10px 12px" }}><Pill color={statusColor(p._status)} label={statusLabel(p._status)} /></td>
+                <td style={{ padding: "10px 12px", whiteSpace: "nowrap" }}>
+                  {can(currentUser, "canEdit") && <button onClick={() => { setForm({ ...p }); setShowModal(true); }} style={{ background: "none", border: "none", cursor: "pointer", color: C.muted, fontSize: 13, marginRight: 8 }}>✎</button>}
+                  {can(currentUser, "canDelete") && <button onClick={() => del("mcw_insurance", setInsurancePolicies, insurancePolicies, p.id)} style={{ background: "none", border: "none", cursor: "pointer", color: C.muted, fontSize: 14 }}>×</button>}
+                </td>
+              </TR>
+            );
+          })}
+        </Tbl>
+      )}
+
+      {view === "cards" && filtered.length > 0 && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(280px,1fr))", gap: 14 }}>
+          {filtered.map(p => (
+            <Card key={p.id} style={{ borderTop: `3px solid ${statusColor(p._status)}` }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 13, color: C.text }}>{p.policyType}</div>
+                  <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>{p.insurer}{p.broker ? ` · ${p.broker}` : ""}</div>
+                </div>
+                <Pill color={statusColor(p._status)} label={statusLabel(p._status)} />
+              </div>
+              {p.assetId && <div style={{ fontSize: 11, color: C.info, marginBottom: 6 }}>🔗 {assetName(p.assetId)}</div>}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 11 }}>
+                {p.policyNo && <div><span style={{ color: C.muted }}>Policy No: </span><span style={{ fontWeight: 600 }}>{p.policyNo}</span></div>}
+                {p.sumInsured && <div><span style={{ color: C.muted }}>Cover: </span><span style={{ fontWeight: 600 }}>{fmt2(p.sumInsured)}</span></div>}
+                {p.premium && <div><span style={{ color: C.muted }}>Premium: </span><span style={{ fontWeight: 600 }}>{fmt2(p.premium)}</span></div>}
+                {p.excess && <div><span style={{ color: C.muted }}>Excess: </span><span style={{ fontWeight: 600 }}>{fmt2(p.excess)}</span></div>}
+                {p.renewalDate && <div style={{ gridColumn: "1/-1" }}><span style={{ color: C.muted }}>Renews: </span><span style={{ fontWeight: 600, color: p._status === "expired" ? C.red : C.text }}>{fmt(p.renewalDate)}</span></div>}
+              </div>
+              <div style={{ display: "flex", gap: 8, marginTop: 12, justifyContent: "flex-end" }}>
+                {can(currentUser, "canEdit") && <button onClick={() => { setForm({ ...p }); setShowModal(true); }} style={{ background: "none", border: "none", cursor: "pointer", color: C.muted, fontSize: 13 }}>✎ Edit</button>}
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {/* ADD POLICY MODAL */}
+      {showModal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ background: C.white, borderRadius: 14, padding: 28, width: "min(580px,96vw)", maxHeight: "90vh", overflowY: "auto", boxShadow: "0 24px 60px rgba(0,0,0,0.35)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+              <div style={{ fontWeight: 800, fontSize: 15, color: C.text }}>{form.id ? "Edit Policy" : "Add Insurance Policy"}</div>
+              <button onClick={() => { setShowModal(false); setForm(blank); }} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 22, color: C.muted }}>×</button>
+            </div>
+            <Row2>
+              <Field label="Policy Type" required>
+                <select value={form.policyType} onChange={e => set("policyType", e.target.value)} style={inp}>
+                  <option value="">— Select —</option>
+                  {INS_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </Field>
+              <Field label="Linked Asset (optional)">
+                <select value={form.assetId} onChange={e => set("assetId", e.target.value)} style={inp}>
+                  <option value="">— General / Fleet-wide —</option>
+                  {assets.map(a => <option key={a.id} value={a.id}>{a.name || a.fleet || a.id}</option>)}
+                </select>
+              </Field>
+            </Row2>
+            <Row2>
+              <Field label="Insurer / Underwriter" required>
+                <input value={form.insurer} onChange={e => set("insurer", e.target.value)} placeholder="e.g. Santam, OUTsurance" style={inp} />
+              </Field>
+              <Field label="Policy Number">
+                <input value={form.policyNo} onChange={e => set("policyNo", e.target.value)} placeholder="e.g. SAN-2024-001234" style={inp} />
+              </Field>
+            </Row2>
+            <Row2>
+              <Field label="Sum Insured (R)">
+                <input type="number" value={form.sumInsured} onChange={e => set("sumInsured", e.target.value)} placeholder="0.00" style={inp} />
+              </Field>
+              <Field label="Excess (R)">
+                <input type="number" value={form.excess} onChange={e => set("excess", e.target.value)} placeholder="0.00" style={inp} />
+              </Field>
+            </Row2>
+            <Row2>
+              <Field label="Premium Amount (R)">
+                <input type="number" value={form.premium} onChange={e => set("premium", e.target.value)} placeholder="0.00" style={inp} />
+              </Field>
+              <Field label="Payment Frequency">
+                <select value={form.paymentFrequency} onChange={e => set("paymentFrequency", e.target.value)} style={inp}>
+                  {INS_PAYMENT.map(f => <option key={f} value={f}>{f}</option>)}
+                </select>
+              </Field>
+            </Row2>
+            <Row2>
+              <Field label="Start Date">
+                <input type="date" value={form.startDate} onChange={e => set("startDate", e.target.value)} style={inp} />
+              </Field>
+              <Field label="Renewal / Expiry Date">
+                <input type="date" value={form.renewalDate} onChange={e => set("renewalDate", e.target.value)} style={inp} />
+              </Field>
+            </Row2>
+            <Row2>
+              <Field label="Broker / Agent">
+                <input value={form.broker} onChange={e => set("broker", e.target.value)} placeholder="Broker company name" style={inp} />
+              </Field>
+              <Field label="Broker Contact Number">
+                <input value={form.brokerContact} onChange={e => set("brokerContact", e.target.value)} placeholder="+27 ..." style={inp} />
+              </Field>
+            </Row2>
+            <Field label="Notes">
+              <textarea value={form.notes} onChange={e => set("notes", e.target.value)} rows={2} style={{ ...inp, height: "auto" }} placeholder="Cover inclusions, exclusions, endorsements..." />
+            </Field>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 20 }}>
+              <Btn variant="outline" onClick={() => { setShowModal(false); setForm(blank); }}>Cancel</Btn>
+              <Btn onClick={save}>{form.id ? "Save Changes" : "Add Policy"}</Btn>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* LOG CLAIM MODAL */}
+      {showClaimModal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ background: C.white, borderRadius: 14, padding: 28, width: "min(520px,96vw)", maxHeight: "90vh", overflowY: "auto", boxShadow: "0 24px 60px rgba(0,0,0,0.35)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+              <div style={{ fontWeight: 800, fontSize: 15, color: C.text }}>Log Insurance Claim</div>
+              <button onClick={() => { setShowClaimModal(false); setClaimForm(blankClaim); }} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 22, color: C.muted }}>×</button>
+            </div>
+            <Field label="Policy" required>
+              <select value={claimForm.policyId} onChange={e => setC("policyId", e.target.value)} style={inp}>
+                <option value="">— Select Policy —</option>
+                {insurancePolicies.map(p => <option key={p.id} value={p.id}>{p.insurer} — {p.policyType}{p.assetId ? ` (${assetName(p.assetId)})` : ""}</option>)}
+              </select>
+            </Field>
+            <Row2>
+              <Field label="Claim Number">
+                <input value={claimForm.claimNo} onChange={e => setC("claimNo", e.target.value)} placeholder="e.g. CLM-2024-007" style={inp} />
+              </Field>
+              <Field label="Claim Date">
+                <input type="date" value={claimForm.claimDate} onChange={e => setC("claimDate", e.target.value)} style={inp} />
+              </Field>
+            </Row2>
+            <Field label="Description of Loss / Incident" required>
+              <textarea value={claimForm.description} onChange={e => setC("description", e.target.value)} rows={3} style={{ ...inp, height: "auto" }} />
+            </Field>
+            <Row2>
+              <Field label="Claim Amount (R)">
+                <input type="number" value={claimForm.claimAmount} onChange={e => setC("claimAmount", e.target.value)} style={inp} />
+              </Field>
+              <Field label="Status">
+                <select value={claimForm.status} onChange={e => setC("status", e.target.value)} style={inp}>
+                  {INS_CLAIM_STATUS.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </Field>
+            </Row2>
+            <Row2>
+              <Field label="Settled Amount (R)">
+                <input type="number" value={claimForm.settledAmount} onChange={e => setC("settledAmount", e.target.value)} style={inp} />
+              </Field>
+              <Field label="Settlement Date">
+                <input type="date" value={claimForm.settledDate} onChange={e => setC("settledDate", e.target.value)} style={inp} />
+              </Field>
+            </Row2>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 20 }}>
+              <Btn variant="outline" onClick={() => { setShowClaimModal(false); setClaimForm(blankClaim); }}>Cancel</Btn>
+              <Btn onClick={saveClaim}>Save Claim</Btn>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── COID / IOD REGISTER ───────────────────────────────────────────────────────
+const INJURY_TYPES = [
+  "First Aid Case (FAC)", "Medical Treatment Case (MTC)", "Lost Time Injury (LTI)",
+  "Restricted Work Case (RWC)", "Permanent Disability", "Fatality"
+];
+const BODY_PARTS = [
+  "Head / Skull", "Eye(s)", "Neck", "Shoulder", "Arm / Elbow", "Wrist / Hand", "Finger(s)",
+  "Back / Spine", "Chest / Ribs", "Abdomen", "Hip / Pelvis", "Leg / Knee", "Ankle / Foot", "Toe(s)",
+  "Multiple / Whole Body", "Internal (Non-visible)", "Other"
+];
+const INCIDENT_CAUSES = [
+  "Struck by object", "Struck against object", "Caught in/between", "Fall from height",
+  "Fall on same level", "Overexertion / strain", "Vehicle / plant collision",
+  "Electrical contact", "Chemical exposure", "Fire / explosion", "Noise / vibration",
+  "Ergonomic / repetitive", "Animal / insect", "Other"
+];
+const COID_CLAIM_STATUS = ["Not yet submitted", "W.Cl.2 Submitted", "Under Review by CompFund", "Accepted", "Rejected", "Appeal lodged", "Paid / Closed"];
+
+function COIDTab({ coidRecords, setCoidRecords, employees, assets, incidents, currentUser,
+  add, update, del, toast, can, fmt, today,
+  C, inp, Field, Row2, Btn, Card, Tbl, TR, Empty, KPI, Pill, PageTitle }) {
+
+  const blank = {
+    employeeId: "", incidentDate: "", incidentTime: "", site: "", injuryType: "", bodyPart: "",
+    incidentCause: "", description: "", witnessName: "", supervisorName: "", reportedDate: "",
+    wCl2Date: "", hospitalName: "", doctorName: "", treatmentReceived: "",
+    daysLost: "", returnToWorkDate: "",
+    wccClaimNo: "", claimStatus: "Not yet submitted",
+    linkedIncidentId: "", notes: ""
+  };
+  const [form, setForm] = useState(blank);
+  const [showModal, setShowModal] = useState(false);
+  const [filterStatus, setFilterStatus] = useState("all");
+  const [filterType, setFilterType] = useState("all");
+  const [view, setView] = useState("table");
+
+  const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
+  const empName = id => { const e = employees.find(x => x.id === id); return e ? (e.name || `${e.firstName||""} ${e.lastName||""}`.trim()) : id; };
+
+  const filtered = coidRecords.filter(r => {
+    if (filterStatus !== "all" && r.claimStatus !== filterStatus) return false;
+    if (filterType !== "all" && r.injuryType !== filterType) return false;
+    return true;
+  });
+
+  const ltis = coidRecords.filter(r => r.injuryType === "Lost Time Injury (LTI)" || r.injuryType === "Permanent Disability" || r.injuryType === "Fatality");
+  const totalDaysLost = coidRecords.reduce((s, r) => s + Number(r.daysLost || 0), 0);
+  const pendingWCl2 = coidRecords.filter(r => !r.wCl2Date && r.injuryType !== "First Aid Case (FAC)");
+  const openClaims = coidRecords.filter(r => ["Not yet submitted","W.Cl.2 Submitted","Under Review by CompFund"].includes(r.claimStatus)).length;
+
+  // DIFR calculation — Disabling Injury Frequency Rate
+  // DIFR = (Number of LTIs x 200,000) / Man-hours worked (approx: employees * 160 hrs/month)
+  const manHours = employees.length * 160;
+  const difr = manHours > 0 ? ((ltis.length * 200000) / manHours).toFixed(2) : "—";
+
+  const severityColor = t => ({
+    "First Aid Case (FAC)": "#16a34a",
+    "Medical Treatment Case (MTC)": "#d97706",
+    "Restricted Work Case (RWC)": "#d97706",
+    "Lost Time Injury (LTI)": C.red,
+    "Permanent Disability": C.red,
+    "Fatality": "#7f1d1d"
+  }[t] || C.muted);
+
+  const save = () => {
+    if (!form.employeeId || !form.incidentDate || !form.injuryType) return toast("Employee, date and injury type are required", "error");
+    if (form.id) { update("mcw_coid", setCoidRecords, coidRecords, form.id, form); toast("Record updated"); }
+    else { add("mcw_coid", setCoidRecords, coidRecords, form); toast("IOD record added"); }
+    setShowModal(false); setForm(blank);
+  };
+
+  return (
+    <div>
+      <PageTitle
+        title="COID / IOD INJURY REGISTER"
+        sub="COIDA Act 130 of 1993 — Injury on Duty register, W.Cl.2 reporting, lost-time tracking and CompFund claims"
+        action={can(currentUser, "canAdd") && (
+          <Btn onClick={() => { setForm(blank); setShowModal(true); }}><Siren size={13} strokeWidth={1.75} style={{ marginRight: 5 }} />Record IOD</Btn>
+        )}
+      />
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 12, marginBottom: 22 }}>
+        <KPI label="Total IODs" value={coidRecords.length} icon={Siren} color={C.info} sub="all injuries" />
+        <KPI label="Lost Time Injuries" value={ltis.length} icon={Ambulance} color={C.red} sub="LTI / Disability / Fatal" />
+        <KPI label="Days Lost" value={totalDaysLost} icon={CalendarOff} color="#d97706" sub="total days off" />
+        <KPI label="DIFR" value={difr} icon={Activity} color={Number(difr) > 2 ? C.red : "#16a34a"} sub="per 200 000 hrs" />
+        <KPI label="W.Cl.2 Overdue" value={pendingWCl2.length} icon={FileWarning} color={pendingWCl2.length > 0 ? C.red : C.muted} sub="not yet submitted" />
+        <KPI label="Open Claims" value={openClaims} icon={BriefcaseMedical} color="#7c3aed" sub="in progress" />
+      </div>
+
+      {pendingWCl2.length > 0 && (
+        <div style={{ background: "#FEF2F2", border: `1px solid ${C.redBorder}`, borderRadius: 10, padding: "12px 18px", marginBottom: 18, display: "flex", gap: 12, alignItems: "flex-start" }}>
+          <FileWarning size={18} color={C.red} style={{ marginTop: 1, flexShrink: 0 }} />
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 13, color: C.red }}>W.Cl.2 Not Submitted — {pendingWCl2.length} Record{pendingWCl2.length !== 1 ? "s" : ""}</div>
+            <div style={{ fontSize: 11.5, color: "#991b1b", marginTop: 3, lineHeight: 1.5 }}>
+              The employer must submit a W.Cl.2 First Report of Accident within 7 days of knowledge of the accident (COIDA Section 39).
+              {" "}{pendingWCl2.slice(0, 4).map(r => empName(r.employeeId)).join(", ")}{pendingWCl2.length > 4 ? ` +${pendingWCl2.length - 4} more` : ""}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div style={{ display: "flex", gap: 10, marginBottom: 18, flexWrap: "wrap", alignItems: "center" }}>
+        <select value={filterType} onChange={e => setFilterType(e.target.value)} style={{ ...inp, width: 220 }}>
+          <option value="all">All Injury Types</option>
+          {INJURY_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+        </select>
+        <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} style={{ ...inp, width: 200 }}>
+          <option value="all">All Claim Statuses</option>
+          {COID_CLAIM_STATUS.map(s => <option key={s} value={s}>{s}</option>)}
+        </select>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+          <Btn variant={view === "table" ? "primary" : "outline"} size="sm" onClick={() => setView("table")}>Table</Btn>
+          <Btn variant={view === "cards" ? "primary" : "outline"} size="sm" onClick={() => setView("cards")}>Cards</Btn>
+        </div>
+      </div>
+
+      {filtered.length === 0 && <Empty icon={Bandage} title="No IOD records" desc="Record an Injury on Duty to start tracking COIDA compliance and CompFund claims." />}
+
+      {view === "table" && filtered.length > 0 && (
+        <Tbl heads={["Employee", "Date", "Injury Type", "Body Part", "Days Lost", "W.Cl.2 Date", "CompFund No.", "Claim Status", ""]}>
+          {filtered.map(r => (
+            <TR key={r.id}>
+              <td style={{ padding: "10px 12px", fontSize: 12, fontWeight: 600, color: C.text }}>{empName(r.employeeId)}</td>
+              <td style={{ padding: "10px 12px", fontSize: 11, color: C.muted }}>{r.incidentDate ? fmt(r.incidentDate) : "—"}</td>
+              <td style={{ padding: "10px 12px", fontSize: 11 }}><Pill color={severityColor(r.injuryType)} label={r.injuryType} /></td>
+              <td style={{ padding: "10px 12px", fontSize: 11, color: C.muted }}>{r.bodyPart || "—"}</td>
+              <td style={{ padding: "10px 12px", fontSize: 12, fontWeight: r.daysLost ? 700 : 400, color: r.daysLost ? C.red : C.muted }}>{r.daysLost || "—"}</td>
+              <td style={{ padding: "10px 12px", fontSize: 11, color: !r.wCl2Date && r.injuryType !== "First Aid Case (FAC)" ? C.red : C.muted }}>
+                {r.wCl2Date ? fmt(r.wCl2Date) : <span style={{ fontWeight: 600 }}>{r.injuryType !== "First Aid Case (FAC)" ? "⚠ Not submitted" : "N/A"}</span>}
+              </td>
+              <td style={{ padding: "10px 12px", fontSize: 11, color: C.muted }}>{r.wccClaimNo || "—"}</td>
+              <td style={{ padding: "10px 12px", fontSize: 11, color: C.text }}>{r.claimStatus}</td>
+              <td style={{ padding: "10px 12px", whiteSpace: "nowrap" }}>
+                {can(currentUser, "canEdit") && <button onClick={() => { setForm({ ...r }); setShowModal(true); }} style={{ background: "none", border: "none", cursor: "pointer", color: C.muted, fontSize: 13, marginRight: 8 }}>✎</button>}
+                {can(currentUser, "canDelete") && <button onClick={() => del("mcw_coid", setCoidRecords, coidRecords, r.id)} style={{ background: "none", border: "none", cursor: "pointer", color: C.muted, fontSize: 14 }}>×</button>}
+              </td>
+            </TR>
+          ))}
+        </Tbl>
+      )}
+
+      {view === "cards" && filtered.length > 0 && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(290px,1fr))", gap: 14 }}>
+          {filtered.map(r => (
+            <Card key={r.id} style={{ borderLeft: `4px solid ${severityColor(r.injuryType)}` }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+                <div style={{ fontWeight: 700, fontSize: 13, color: C.text }}>{empName(r.employeeId)}</div>
+                <Pill color={severityColor(r.injuryType)} label={r.injuryType.split(" (")[0]} />
+              </div>
+              <div style={{ fontSize: 11, color: C.muted, marginBottom: 8 }}>{r.incidentDate ? fmt(r.incidentDate) : "No date"}{r.site ? ` · ${r.site}` : ""}</div>
+              {r.description && <div style={{ fontSize: 11.5, color: C.text, marginBottom: 8, lineHeight: 1.45 }}>{r.description.slice(0, 120)}{r.description.length > 120 ? "…" : ""}</div>}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, fontSize: 11, borderTop: `1px solid ${C.border}`, paddingTop: 8, marginTop: 4 }}>
+                <div><span style={{ color: C.muted }}>Days lost: </span><strong>{r.daysLost || "—"}</strong></div>
+                <div><span style={{ color: C.muted }}>W.Cl.2: </span><strong style={{ color: !r.wCl2Date && r.injuryType !== "First Aid Case (FAC)" ? C.red : C.text }}>{r.wCl2Date ? fmt(r.wCl2Date) : r.injuryType !== "First Aid Case (FAC)" ? "⚠ Pending" : "N/A"}</strong></div>
+                {r.wccClaimNo && <div style={{ gridColumn: "1/-1" }}><span style={{ color: C.muted }}>Claim No: </span><strong>{r.wccClaimNo}</strong></div>}
+                <div style={{ gridColumn: "1/-1" }}><span style={{ color: C.muted }}>Status: </span><strong>{r.claimStatus}</strong></div>
+              </div>
+              <div style={{ display: "flex", gap: 8, marginTop: 10, justifyContent: "flex-end" }}>
+                {can(currentUser, "canEdit") && <button onClick={() => { setForm({ ...r }); setShowModal(true); }} style={{ background: "none", border: "none", cursor: "pointer", color: C.muted, fontSize: 12 }}>✎ Edit</button>}
+                {can(currentUser, "canDelete") && <button onClick={() => del("mcw_coid", setCoidRecords, coidRecords, r.id)} style={{ background: "none", border: "none", cursor: "pointer", color: C.muted, fontSize: 12 }}>× Delete</button>}
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {/* ADD / EDIT MODAL */}
+      {showModal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ background: C.white, borderRadius: 14, padding: 28, width: "min(620px,96vw)", maxHeight: "92vh", overflowY: "auto", boxShadow: "0 24px 60px rgba(0,0,0,0.35)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+              <div style={{ fontWeight: 800, fontSize: 15, color: C.text }}>{form.id ? "Edit IOD Record" : "Record Injury on Duty (IOD)"}</div>
+              <button onClick={() => { setShowModal(false); setForm(blank); }} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 22, color: C.muted }}>×</button>
+            </div>
+
+            {/* Section: Incident */}
+            <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>1 · Incident Details</div>
+            <Row2>
+              <Field label="Injured Employee" required>
+                <select value={form.employeeId} onChange={e => set("employeeId", e.target.value)} style={inp}>
+                  <option value="">— Select —</option>
+                  {employees.map(e => <option key={e.id} value={e.id}>{e.name || `${e.firstName||""} ${e.lastName||""}`.trim()}</option>)}
+                </select>
+              </Field>
+              <Field label="Injury / Case Type" required>
+                <select value={form.injuryType} onChange={e => set("injuryType", e.target.value)} style={inp}>
+                  <option value="">— Select —</option>
+                  {INJURY_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </Field>
+            </Row2>
+            <Row2>
+              <Field label="Incident Date" required>
+                <input type="date" value={form.incidentDate} onChange={e => set("incidentDate", e.target.value)} style={inp} />
+              </Field>
+              <Field label="Time of Incident">
+                <input type="time" value={form.incidentTime} onChange={e => set("incidentTime", e.target.value)} style={inp} />
+              </Field>
+            </Row2>
+            <Row2>
+              <Field label="Site / Location">
+                <input value={form.site} onChange={e => set("site", e.target.value)} placeholder="e.g. Site A — N1 Road Works" style={inp} />
+              </Field>
+              <Field label="Body Part Injured">
+                <select value={form.bodyPart} onChange={e => set("bodyPart", e.target.value)} style={inp}>
+                  <option value="">— Select —</option>
+                  {BODY_PARTS.map(b => <option key={b} value={b}>{b}</option>)}
+                </select>
+              </Field>
+            </Row2>
+            <Row2>
+              <Field label="Incident Cause">
+                <select value={form.incidentCause} onChange={e => set("incidentCause", e.target.value)} style={inp}>
+                  <option value="">— Select —</option>
+                  {INCIDENT_CAUSES.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </Field>
+              <Field label="Supervisor on Duty">
+                <input value={form.supervisorName} onChange={e => set("supervisorName", e.target.value)} style={inp} />
+              </Field>
+            </Row2>
+            <Field label="Description of Incident">
+              <textarea value={form.description} onChange={e => set("description", e.target.value)} rows={3} style={{ ...inp, height: "auto" }} />
+            </Field>
+            <Row2>
+              <Field label="Witness Name">
+                <input value={form.witnessName} onChange={e => set("witnessName", e.target.value)} style={inp} />
+              </Field>
+              <Field label="Date Reported to Employer">
+                <input type="date" value={form.reportedDate} onChange={e => set("reportedDate", e.target.value)} style={inp} />
+              </Field>
+            </Row2>
+
+            {/* Section: Medical */}
+            <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 1, margin: "18px 0 10px" }}>2 · Medical Treatment</div>
+            <Row2>
+              <Field label="Hospital / Clinic">
+                <input value={form.hospitalName} onChange={e => set("hospitalName", e.target.value)} style={inp} />
+              </Field>
+              <Field label="Treating Doctor">
+                <input value={form.doctorName} onChange={e => set("doctorName", e.target.value)} style={inp} />
+              </Field>
+            </Row2>
+            <Field label="Treatment Received">
+              <input value={form.treatmentReceived} onChange={e => set("treatmentReceived", e.target.value)} placeholder="e.g. 3 stitches, X-ray, physiotherapy" style={inp} />
+            </Field>
+            <Row2>
+              <Field label="Days Lost / Off Work">
+                <input type="number" value={form.daysLost} onChange={e => set("daysLost", e.target.value)} min="0" style={inp} />
+              </Field>
+              <Field label="Return to Work Date">
+                <input type="date" value={form.returnToWorkDate} onChange={e => set("returnToWorkDate", e.target.value)} style={inp} />
+              </Field>
+            </Row2>
+
+            {/* Section: COID Claim */}
+            <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: 1, margin: "18px 0 10px" }}>3 · COID / CompFund Claim</div>
+            <Row2>
+              <Field label="W.Cl.2 Submission Date">
+                <input type="date" value={form.wCl2Date} onChange={e => set("wCl2Date", e.target.value)} style={inp} />
+              </Field>
+              <Field label="WCC Claim Number">
+                <input value={form.wccClaimNo} onChange={e => set("wccClaimNo", e.target.value)} placeholder="e.g. WCC-2024-0001" style={inp} />
+              </Field>
+            </Row2>
+            <Field label="Claim Status">
+              <select value={form.claimStatus} onChange={e => set("claimStatus", e.target.value)} style={inp}>
+                {COID_CLAIM_STATUS.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </Field>
+            <Field label="Notes">
+              <textarea value={form.notes} onChange={e => set("notes", e.target.value)} rows={2} style={{ ...inp, height: "auto" }} />
+            </Field>
+
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 20 }}>
+              <Btn variant="outline" onClick={() => { setShowModal(false); setForm(blank); }}>Cancel</Btn>
+              <Btn onClick={save}>{form.id ? "Save Changes" : "Record IOD"}</Btn>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── OPERATOR FITNESS & LICENCE TRACKING ──────────────────────────────────────
 const CERT_TYPES = [
   "Driver's Licence", "PDP (Professional Driving Permit)", "Operator Certificate",
@@ -4864,6 +5465,8 @@ export default function App() {
       ["hirereqs",      setHireReqs],
       ["assetrevenue",  setAssetRevenue],
       ["opfitness",     setOpFitness],
+      ["insurance",     setInsurancePolicies],
+      ["coid",          setCoidRecords],
     ];
     const unsubscribers = realTimeCollections.map(([name, setter]) => {
       return onSnapshot(collection(db, name), (snapshot) => {
@@ -4931,6 +5534,8 @@ export default function App() {
       ["hirereqs",      setHireReqs],
       ["assetrevenue",  setAssetRevenue],
       ["opfitness",     setOpFitness],
+      ["insurance",     setInsurancePolicies],
+      ["coid",          setCoidRecords],
     ];
 
     for (const [name, setter] of collections) {
@@ -5197,6 +5802,8 @@ export default function App() {
   const [jobCards, setJobCards] = useState([]);
   const [assetRevenue, setAssetRevenue] = useState([]);
   const [opFitness, setOpFitness] = useState([]);
+  const [insurancePolicies, setInsurancePolicies] = useState([]);
+  const [coidRecords, setCoidRecords] = useState([]);
   const [purchaseOrders, setPurchaseOrders] = useState([]);
   const [hireReqs, setHireReqs] = useState([]);
   const dCon = {
@@ -15376,6 +15983,33 @@ input:focus,select:focus,textarea:focus{border-color:${C.red}!important;box-shad
               ts={ts} company={company} today={today} fmt={fmt}
               depreciate={depreciate} getAssetExpenses={getAssetExpenses}
               C={C} Btn={Btn} Pill={Pill} KPI={KPI} PageTitle={PageTitle}
+            />
+          )}
+
+          {/* INSURANCE REGISTER */}
+          {tab === "Insurance" && (
+            <InsuranceTab
+              insurancePolicies={insurancePolicies} setInsurancePolicies={setInsurancePolicies}
+              assets={assets} currentUser={currentUser}
+              add={add} update={update} del={del}
+              toast={toast} can={can} fmt={fmt} today={today}
+              C={C} inp={inp} Field={Field} Row2={Row2}
+              Btn={Btn} Card={Card} Tbl={Tbl} TR={TR} Empty={Empty}
+              KPI={KPI} Pill={Pill} PageTitle={PageTitle}
+            />
+          )}
+
+          {/* COID / IOD REGISTER */}
+          {tab === "COID" && (
+            <COIDTab
+              coidRecords={coidRecords} setCoidRecords={setCoidRecords}
+              employees={employees} assets={assets} incidents={incidents}
+              currentUser={currentUser}
+              add={add} update={update} del={del}
+              toast={toast} can={can} fmt={fmt} today={today}
+              C={C} inp={inp} Field={Field} Row2={Row2}
+              Btn={Btn} Card={Card} Tbl={Tbl} TR={TR} Empty={Empty}
+              KPI={KPI} Pill={Pill} PageTitle={PageTitle}
             />
           )}
 
