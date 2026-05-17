@@ -1,6 +1,16 @@
 import { useState, useEffect, useRef } from "react";
 import * as XLSX from "xlsx";
 import { db, auth, collection, doc, getDocs, setDoc, deleteDoc, onSnapshot, signInAnonymously, onAuthStateChanged, signOut } from "./firebase";
+import {
+  LayoutDashboard, Database, TrendingDown, Wrench, Fuel, Clock,
+  FileText, ShieldCheck, FolderKanban, Users, CalendarDays,
+  Activity, AlertTriangle, Building2, Wallet, Truck, ClipboardList,
+  Trash2, BarChart3, Scale, ScrollText, CalendarOff, UserCheck,
+  Package, BadgeCheck, FileSpreadsheet, Upload, PieChart, Gauge,
+  Bell, Receipt, ClipboardCheck, HardHat, ArrowLeftRight,
+  ShoppingCart, Sparkles, Map, Brain, QrCode, Settings as SettingsIcon,
+  Hammer, Droplets, BarChart2, ScanLine, RefreshCw
+} from "lucide-react";
 
 const C = {
   red: "#8C1414",
@@ -215,47 +225,47 @@ const MAINT_TYPES = [
   "Other",
 ];
 const NAV = [
-  { id: "Dashboard", ico: "⊞" },
-  { id: "Assets", ico: "⊟" },
-  { id: "Depreciation", ico: "⊘" },
-  { id: "Maintenance", ico: "⊙" },
-  { id: "Fuel", ico: "◈" },
-  { id: "Timesheets", ico: "◷" },
-  { id: "Reports", ico: "◈" },
-  { id: "Compliance", ico: "⊛" },
-  { id: "Projects", ico: "⊕" },
-  { id: "Employees", ico: "⊞" },
-  { id: "Schedules", ico: "⊗" },
-  { id: "Conditions", ico: "⊜" },
-  { id: "Incidents", ico: "⚠" },
-  { id: "Suppliers", ico: "⊡" },
-  { id: "Budgets", ico: "₿" },
-  { id: "Hire", ico: "⊠" },
-  { id: "HireReqs", ico: "📋" },
-  { id: "Disposals", ico: "⊖" },
-  { id: "Analytics", ico: "▲" },
-  { id: "FuelRecon", ico: "⊟" },
-  { id: "AuditLog", ico: "⊙" },
-  { id: "Leave", ico: "◫" },
-  { id: "Assignments", ico: "◴" },
-  { id: "Spares", ico: "⊟" },
-  { id: "Warranties", ico: "⊛" },
-  { id: "SARSReport", ico: "₴" },
-  { id: "Import", ico: "⊕" },
-  { id: "ProjectCost", ico: "₱" },
-  { id: "Utilisation", ico: "◎" },
-  { id: "Alerts", ico: "⚑" },
-  { id: "AssetExpenses", ico: "₽" },
-  { id: "PreOp", ico: "☑" },
-  { id: "Contractors", ico: "⊡" },
-  { id: "Transfers", ico: "⇄" },
-  { id: "PurchaseOrders", ico: "📦" },
-  { id: "JobCards", ico: "🔧" },
-  { id: "AIAssist", ico: "✦" },
-  { id: "FleetMap", ico: "◉" },
-  { id: "AssetIntel", ico: "◈" },
-  { id: "AssetTags", ico: "⬡" },
-  { id: "Settings", ico: "⚙" },
+  { id: "Dashboard",     ico: LayoutDashboard,  tip: "Fleet overview — KPIs, charts, alerts at a glance" },
+  { id: "Assets",        ico: Database,         tip: "Full asset register — all plant, vehicles and equipment" },
+  { id: "Depreciation",  ico: TrendingDown,     tip: "Book value tracking — straight-line & reducing balance depreciation" },
+  { id: "Maintenance",   ico: Wrench,           tip: "Maintenance history — services, repairs and next-due dates" },
+  { id: "Fuel",          ico: Droplets,         tip: "Fuel consumption logs — cost, litres and efficiency per asset" },
+  { id: "Timesheets",    ico: Clock,            tip: "Employee hours — daily timesheets and project allocation" },
+  { id: "Reports",       ico: FileText,         tip: "Printable reports — asset summary, CIDB, insurance and more" },
+  { id: "Compliance",    ico: ShieldCheck,      tip: "Document compliance — roadworthy, licences, permits with expiry alerts" },
+  { id: "Projects",      ico: FolderKanban,     tip: "Active and completed projects with budget vs actual tracking" },
+  { id: "Employees",     ico: Users,            tip: "Employee register — roles, licences, contacts and status" },
+  { id: "Schedules",     ico: CalendarDays,     tip: "Scheduled maintenance — calendar view of upcoming service intervals" },
+  { id: "Conditions",    ico: Activity,         tip: "Asset condition assessments — ratings, photos and history" },
+  { id: "Incidents",     ico: AlertTriangle,    tip: "Incident log — breakdowns, accidents, near-misses and resolutions" },
+  { id: "Suppliers",     ico: Building2,        tip: "Supplier register — service providers, parts suppliers and contractors" },
+  { id: "Budgets",       ico: Wallet,           tip: "Budget management — department allocations and spend tracking" },
+  { id: "Hire",          ico: Truck,            tip: "Equipment hire — external plant hire agreements and costs" },
+  { id: "HireReqs",      ico: ClipboardList,    tip: "Hire requisitions — formal request → approval → dispatch workflow" },
+  { id: "Disposals",     ico: Trash2,           tip: "Asset disposals — decommissioned and written-off assets" },
+  { id: "Analytics",     ico: BarChart3,        tip: "Advanced analytics — cost trends, fleet performance and benchmarks" },
+  { id: "FuelRecon",     ico: Scale,            tip: "Fuel reconciliation — compare card statements vs logged fills" },
+  { id: "AuditLog",      ico: ScrollText,       tip: "Audit trail — full history of every change made in the system" },
+  { id: "Leave",         ico: CalendarOff,      tip: "Leave and overtime — employee absence and extra hours tracking" },
+  { id: "Assignments",   ico: UserCheck,        tip: "Asset assignments — who is responsible for which asset" },
+  { id: "Spares",        ico: Package,          tip: "Parts and spares inventory — stock levels, reorder alerts" },
+  { id: "Warranties",    ico: BadgeCheck,       tip: "Warranty register — active warranties with expiry notifications" },
+  { id: "SARSReport",    ico: FileSpreadsheet,  tip: "SARS Section 11(e) asset report for tax depreciation submissions" },
+  { id: "Import",        ico: Upload,           tip: "Bulk import — load assets, maintenance or employees from Excel" },
+  { id: "ProjectCost",   ico: PieChart,         tip: "Project cost report — variance analysis and profitability per project" },
+  { id: "Utilisation",   ico: Gauge,            tip: "Asset utilisation — active vs idle time and site deployment rates" },
+  { id: "Alerts",        ico: Bell,             tip: "Notification centre — all system alerts, warnings and reminders" },
+  { id: "AssetExpenses", ico: Receipt,          tip: "Expense breakdown per asset — all costs in one view" },
+  { id: "PreOp",         ico: ClipboardCheck,   tip: "Pre-operational checklists — daily vehicle and plant safety checks" },
+  { id: "Contractors",   ico: HardHat,          tip: "Contractor register — external companies, compliance and contacts" },
+  { id: "Transfers",     ico: ArrowLeftRight,   tip: "Asset transfer log — track movement of assets between sites" },
+  { id: "PurchaseOrders",ico: ShoppingCart,     tip: "Purchase orders — raise, approve and receive supplier POs" },
+  { id: "JobCards",      ico: Hammer,           tip: "Job cards — full workshop lifecycle from fault reported to invoiced" },
+  { id: "AIAssist",      ico: Sparkles,         tip: "AI Plant Assistant — ask your fleet data anything in plain English" },
+  { id: "FleetMap",      ico: Map,              tip: "Fleet visual map — see every asset's current site at a glance" },
+  { id: "AssetIntel",    ico: Brain,            tip: "Asset intelligence — predictive maintenance, replace vs repair scoring" },
+  { id: "AssetTags",     ico: QrCode,           tip: "QR tags and scanner — print labels and scan assets in the field" },
+  { id: "Settings",      ico: SettingsIcon,     tip: "System settings — company profile, users, sites and preferences" },
 ];
 const NAV_LABELS = {
   Dashboard: "Dashboard",
@@ -4017,6 +4027,45 @@ ${JSON.stringify(assetData)}`}],
   );
 }
 
+// ── TOOLTIP SYSTEM ────────────────────────────────────────────────────────────
+// General-purpose hover tooltip — wraps any element
+function Tooltip({ title, desc, children, placement = "top", maxWidth = 210 }) {
+  const [vis, setVis] = useState(false);
+  const timer = useRef(null);
+  const show = () => { timer.current = setTimeout(() => setVis(true), 260); };
+  const hide = () => { clearTimeout(timer.current); setVis(false); };
+  const base = {
+    position: "absolute", zIndex: 99999,
+    background: "#0D0F14", color: "white",
+    borderRadius: 8, padding: "9px 13px",
+    fontSize: 11.5, fontFamily: "'DM Sans',sans-serif",
+    lineHeight: 1.45, maxWidth, whiteSpace: "normal",
+    pointerEvents: "none",
+    boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
+    border: "1px solid rgba(255,255,255,0.09)",
+    animation: "tipIn 0.12s ease",
+  };
+  const pos = {
+    top:    { bottom: "calc(100% + 9px)", left: "50%", transform: "translateX(-50%)" },
+    bottom: { top:    "calc(100% + 9px)", left: "50%", transform: "translateX(-50%)" },
+    right:  { left:   "calc(100% + 9px)", top:  "50%", transform: "translateY(-50%)" },
+    left:   { right:  "calc(100% + 9px)", top:  "50%", transform: "translateY(-50%)" },
+  }[placement];
+  return (
+    <span style={{ position: "relative", display: "inline-flex" }}
+      onMouseEnter={show} onMouseLeave={hide} onFocus={show} onBlur={hide}>
+      {children}
+      {vis && (
+        <div style={{ ...base, ...pos }}>
+          {title && <div style={{ fontWeight: 700, fontSize: 12, marginBottom: desc ? 4 : 0 }}>{title}</div>}
+          {desc  && <div style={{ opacity: 0.65, fontSize: 10.5 }}>{desc}</div>}
+        </div>
+      )}
+    </span>
+  );
+}
+
+
 export default function App() {
   const [tab, setTab] = useState("Dashboard");
   const [assets, setAssets] = useState([]);
@@ -6221,6 +6270,8 @@ input:focus,select:focus,textarea:focus{border-color:${C.red}!important;box-shad
 @keyframes scanLine{0%{top:-8%}100%{top:108%}}
 @keyframes revealBar{from{transform:scaleX(0)}to{transform:scaleX(1)}}
 @keyframes countIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+@keyframes tipIn{from{opacity:0;transform:translateY(4px) translateX(-50%) scale(0.97)}to{opacity:1;transform:translateY(0) translateX(-50%) scale(1)}}
+@keyframes tipInRight{from{opacity:0;transform:translateY(-50%) translateX(4px)}to{opacity:1;transform:translateY(-50%) translateX(0)}}
 
 /* ── Interactive hover classes ── */
 .kpi-hover{transition:transform 0.2s ease,box-shadow 0.2s ease!important;}
@@ -6442,11 +6493,10 @@ input:focus,select:focus,textarea:focus{border-color:${C.red}!important;box-shad
                   const n = NAV.find((x) => x.id === id);
                   if (!n) return null;
                   const a = tab === n.id;
-                  return (
+                  const btn = (
                     <button
                       key={n.id}
                       onClick={() => setTab(n.id)}
-                      title={NAV_LABELS[n.id]}
                       className={`nav-item${a ? " nav-active" : ""}`}
                       style={{
                         width: "100%",
@@ -6480,12 +6530,13 @@ input:focus,select:focus,textarea:focus{border-color:${C.red}!important;box-shad
                       )}
                       {/* Icon */}
                       <span style={{
-                        fontSize: 13, flexShrink: 0,
-                        opacity: a ? 1 : 0.4,
+                        flexShrink: 0,
+                        opacity: a ? 1 : 0.45,
                         filter: a ? `drop-shadow(0 0 4px ${C.redGlow})` : "none",
                         transition: "all 0.15s",
+                        display: "flex", alignItems: "center",
                       }}>
-                        {n.ico}
+                        <n.ico size={14} strokeWidth={1.75} />
                       </span>
                       {side && (
                         <span style={{
@@ -6496,6 +6547,11 @@ input:focus,select:focus,textarea:focus{border-color:${C.red}!important;box-shad
                         </span>
                       )}
                     </button>
+                  );
+                  return side ? btn : (
+                    <Tooltip key={n.id} title={NAV_LABELS[n.id]} desc={n.tip} placement="right">
+                      {btn}
+                    </Tooltip>
                   );
                 })}
               </div>
@@ -6884,28 +6940,32 @@ input:focus,select:focus,textarea:focus{border-color:${C.red}!important;box-shad
               {/* ── QUICK STATS MINI TILES ── */}
               <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(155px,1fr))", gap:10 }}>
                 {[
-                  { l:"Fuel Records",    v:fuel.length,                                                           s:`${fuel.reduce((s,f)=>s+Number(f.litres||0),0).toFixed(0)} L total`,  c:C.warn,    ico:"⛽", t:"Fuel" },
-                  { l:"Maintenance",     v:maint.length,                                                          s:fmt(maint.reduce((s,m)=>s+Number(m.cost||0),0)),                        c:"#7c3aed", ico:"⊙", t:"Maintenance" },
-                  { l:"Active Projects", v:projects.filter(p=>p.status==="Active").length,                        s:`of ${projects.length} total`,                                          c:C.info,    ico:"⊕", t:"Projects" },
-                  { l:"Employees",       v:employees.filter(e=>e.status==="Active").length,                       s:"active on register",                                                   c:C.success, ico:"⊞", t:"Employees" },
-                  { l:"Job Cards Open",  v:jobCards.filter(j=>!["Complete","Cancelled","Invoiced"].includes(j.status)).length, s:`${jobCards.filter(j=>j.priority==="Critical"&&!["Complete","Cancelled"].includes(j.status)).length} critical`, c:jobCards.filter(j=>j.priority==="Critical"&&!["Complete","Cancelled"].includes(j.status)).length>0?C.red:C.muted, ico:"🔧", t:"JobCards" },
-                  { l:"Parts Out",       v:spares.filter(s=>Number(s.quantity||0)===0).length,                    s:`${spares.filter(s=>Number(s.quantity||0)<=Number(s.minStockLevel||0)&&Number(s.minStockLevel||0)>0).length} low stock`, c:spares.filter(s=>Number(s.quantity||0)===0).length>0?C.red:C.success, ico:"⊟", t:"Spares" },
-                  { l:"Open Incidents",  v:incidents.filter(i=>i.resolved==="No").length,                         s:"unresolved",                                                           c:incidents.filter(i=>i.resolved==="No").length>0?C.red:C.success, ico:"⚠", t:"Incidents" },
-                  { l:"Compliance",      v:compliance.filter(c=>c.expiryDate&&c.expiryDate<today()).length,        s:"expired documents",                                                    c:compliance.filter(c=>c.expiryDate&&c.expiryDate<today()).length>0?C.red:C.success, ico:"⊛", t:"Compliance" },
-                  { l:"Purchase Orders", v:purchaseOrders.filter(p=>!["Fully Received","Cancelled"].includes(p.status)).length, s:"open / pending", c:C.muted, ico:"📦", t:"PurchaseOrders" },
+                  { l:"Fuel Records",    v:fuel.length,                                                           s:`${fuel.reduce((s,f)=>s+Number(f.litres||0),0).toFixed(0)} L total`,  c:C.warn,    Ico:Droplets,   t:"Fuel",          tip:"Total fuel fill-ups logged. Click to view all fuel records." },
+                  { l:"Maintenance",     v:maint.length,                                                          s:fmt(maint.reduce((s,m)=>s+Number(m.cost||0),0)),                        c:"#7c3aed", Ico:Wrench,     t:"Maintenance",   tip:"All maintenance records. Total spend shown below. Click to manage." },
+                  { l:"Active Projects", v:projects.filter(p=>p.status==="Active").length,                        s:`of ${projects.length} total`,                                          c:C.info,    Ico:FolderKanban,t:"Projects",      tip:"Projects currently in progress. Click to view budgets and progress." },
+                  { l:"Employees",       v:employees.filter(e=>e.status==="Active").length,                       s:"active on register",                                                   c:C.success, Ico:Users,      t:"Employees",     tip:"Active employees on the register. Click to manage the team." },
+                  { l:"Job Cards Open",  v:jobCards.filter(j=>!["Complete","Cancelled","Invoiced"].includes(j.status)).length, s:`${jobCards.filter(j=>j.priority==="Critical"&&!["Complete","Cancelled"].includes(j.status)).length} critical`, c:jobCards.filter(j=>j.priority==="Critical"&&!["Complete","Cancelled"].includes(j.status)).length>0?C.red:C.muted, Ico:Hammer,    t:"JobCards",      tip:"Open workshop job cards. Critical ones require immediate attention." },
+                  { l:"Parts Out",       v:spares.filter(s=>Number(s.quantity||0)===0).length,                    s:`${spares.filter(s=>Number(s.quantity||0)<=Number(s.minStockLevel||0)&&Number(s.minStockLevel||0)>0).length} low stock`, c:spares.filter(s=>Number(s.quantity||0)===0).length>0?C.red:C.success, Ico:Package,   t:"Spares",        tip:"Parts with zero stock. Low stock count shown below. Click to reorder." },
+                  { l:"Open Incidents",  v:incidents.filter(i=>i.resolved==="No").length,                         s:"unresolved",                                                           c:incidents.filter(i=>i.resolved==="No").length>0?C.red:C.success, Ico:AlertTriangle,t:"Incidents",    tip:"Unresolved incidents — breakdowns, accidents or near-misses." },
+                  { l:"Compliance",      v:compliance.filter(c=>c.expiryDate&&c.expiryDate<today()).length,        s:"expired documents",                                                    c:compliance.filter(c=>c.expiryDate&&c.expiryDate<today()).length>0?C.red:C.success, Ico:ShieldCheck,t:"Compliance",    tip:"Documents past their expiry date. Click to view and renew." },
+                  { l:"Purchase Orders", v:purchaseOrders.filter(p=>!["Fully Received","Cancelled"].includes(p.status)).length, s:"open / pending", c:C.muted, Ico:ShoppingCart, t:"PurchaseOrders", tip:"Purchase orders awaiting delivery or approval. Click to manage POs." },
                 ].map(s=>(
-                  <div key={s.l} onClick={()=>setTab(s.t)} className="stat-tile"
-                    style={{ background:C.white, borderRadius:10, padding:"13px 15px", border:`1px solid ${C.border}`, position:"relative", overflow:"hidden", boxShadow:"0 2px 8px rgba(0,0,0,0.04)" }}>
-                    <div style={{ position:"absolute", top:0, left:0, right:0, height:3, background:`linear-gradient(90deg,${s.c},${s.c}55)`, borderRadius:"10px 10px 0 0" }}/>
-                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
-                      <div>
-                        <div style={{ fontSize:9, color:C.muted, fontWeight:700, textTransform:"uppercase", letterSpacing:0.8, marginBottom:5 }}>{s.l}</div>
-                        <div style={{ fontSize:20, fontWeight:800, color:C.text, fontFamily:"'Barlow Condensed',sans-serif", lineHeight:1 }}>{s.v}</div>
-                        <div style={{ fontSize:10, color:C.mutedLt, marginTop:4 }}>{s.s}</div>
+                  <Tooltip key={s.l} title={s.l} desc={s.tip} placement="top">
+                    <div onClick={()=>setTab(s.t)} className="stat-tile"
+                      style={{ background:C.white, borderRadius:10, padding:"13px 15px", border:`1px solid ${C.border}`, position:"relative", overflow:"hidden", boxShadow:"0 2px 8px rgba(0,0,0,0.04)", cursor:"pointer", width:"100%" }}>
+                      <div style={{ position:"absolute", top:0, left:0, right:0, height:3, background:`linear-gradient(90deg,${s.c},${s.c}55)`, borderRadius:"10px 10px 0 0" }}/>
+                      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
+                        <div>
+                          <div style={{ fontSize:9, color:C.muted, fontWeight:700, textTransform:"uppercase", letterSpacing:0.8, marginBottom:5 }}>{s.l}</div>
+                          <div style={{ fontSize:20, fontWeight:800, color:C.text, fontFamily:"'Barlow Condensed',sans-serif", lineHeight:1 }}>{s.v}</div>
+                          <div style={{ fontSize:10, color:C.mutedLt, marginTop:4 }}>{s.s}</div>
+                        </div>
+                        <div style={{ width:30, height:30, borderRadius:8, background:`${s.c}18`, display:"flex", alignItems:"center", justifyContent:"center", color:s.c }}>
+                          <s.Ico size={15} strokeWidth={1.75} />
+                        </div>
                       </div>
-                      <div style={{ width:28, height:28, borderRadius:7, background:`${s.c}16`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:13 }}>{s.ico}</div>
                     </div>
-                  </div>
+                  </Tooltip>
                 ))}
               </div>
             </div>
