@@ -409,7 +409,9 @@ function depreciate(a) {
   };
 }
 
-function Pill({ text, color = "gray" }) {
+function Pill({ text, label, color = "gray" }) {
+  const displayText = text || label || "";
+  const isHex = color && (color.startsWith("#") || color.startsWith("rgb"));
   const m = {
     green: { bg: C.successBg, c: C.success, b: "#A7F3D0" },
     yellow: { bg: C.warnBg, c: C.warn, b: "#FDE68A" },
@@ -417,7 +419,7 @@ function Pill({ text, color = "gray" }) {
     blue: { bg: C.infoBg, c: C.info, b: "#BFDBFE" },
     gray: { bg: "#F3F4F6", c: C.muted, b: "#E5E7EB" },
   };
-  const s = m[color] || m.gray;
+  const s = isHex ? { bg: color + "22", c: color, b: color + "55" } : (m[color] || m.gray);
   return (
     <span
       style={{
@@ -432,7 +434,7 @@ function Pill({ text, color = "gray" }) {
         whiteSpace: "nowrap",
       }}
     >
-      {text}
+      {displayText}
     </span>
   );
 }
@@ -734,6 +736,7 @@ function TR({ cells, stripe }) {
 }
 
 function Empty({ icon, title, desc, btn }) {
+  const IconEl = icon && typeof icon !== "string" ? icon : null;
   return (
     <div
       style={{
@@ -747,7 +750,7 @@ function Empty({ icon, title, desc, btn }) {
       }}
     >
       <div style={{ fontSize: 36, marginBottom: 14, opacity: 0.25 }}>
-        {icon}
+        {IconEl ? <IconEl size={42} strokeWidth={1.2} /> : icon}
       </div>
       <div
         style={{
