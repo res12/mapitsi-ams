@@ -424,8 +424,9 @@ function Pill({ text, color = "gray" }) {
 }
 
 function KPI({ label, value, sub, color, icon }) {
-  // icon can be a Lucide component reference OR a legacy string/emoji
-  const IconEl = typeof icon === "function" ? icon : null;
+  // icon can be a Lucide forwardRef component (object) OR a legacy string/emoji
+  // Lucide icons use forwardRef → typeof is "object", not "function"
+  const IconEl = icon && typeof icon !== "string" ? icon : null;
   return (
     <div
       className="kpi-hover"
